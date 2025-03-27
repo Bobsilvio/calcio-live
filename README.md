@@ -1,11 +1,15 @@
 # Calcio Live - Home Assistant Integration
 
-## Supportami  
-Se ti piace il mio lavoro e vuoi che continui nello sviluppo delle card, puoi offrirmi un caffè.
+## Supportami / Support Me
+
+Se ti piace il mio lavoro e vuoi che continui nello sviluppo delle card, puoi offrirmi un caffè.\
+If you like my work and want me to continue developing the cards, you can buy me a coffee.
+
 
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-%2300457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?hosted_button_id=Z6KY9V6BBZ4BN)
 
-Non dimenticare di seguirmi sui social:
+Non dimenticare di seguirmi sui social:\
+Don't forget to follow me on social media:
 
 [![TikTok](https://img.shields.io/badge/Follow_TikTok-%23000000?style=for-the-badge&logo=tiktok&logoColor=white)](https://www.tiktok.com/@silviosmartalexa)
 
@@ -14,64 +18,54 @@ Non dimenticare di seguirmi sui social:
 [![YouTube](https://img.shields.io/badge/Subscribe_YouTube-%23FF0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/@silviosmartalexa)
 
 
-## Video Guida
+## Video Guida / Video Guide
 
-[Guarda il video su YouTube](https://www.youtube.com/watch?v=K-FAJmwsGXs)
+[Guarda il video su YouTube](https://www.youtube.com/watch?v=K-FAJmwsGXs)\
+[Watch the video on YouTube](https://www.youtube.com/watch?v=K-FAJmwsGXs)
 
+## Descrizione / Description
 
-## Descrizione
-L'integrazione "Calcio Live" per Home Assistant permette di ottenere informazioni in tempo reale sulle competizioni di calcio, come classifiche, cannonieri e giornate di campionato.
+L'integrazione "Calcio Live" per Home Assistant permette di ottenere informazioni in tempo reale sulle competizioni di calcio, come classifiche, cannonieri e giornate di campionato.\
+The "Calcio Live" integration for Home Assistant allows you to get real-time information about football competitions, such as standings, top scorers, and matchdays.
     
 <img src="images/campionati.png" alt="HACS" width="800"/>
 
-## Installazione manuale tramite HACS
+## Installazione manuale tramite HACS / Manual Installation via HACS
 
-1. Aggiungi il repository `https://github.com/Bobsilvio/calcio-live` in HACS come INTEGRAZIONE.
+1. Aggiungi il repository `https://github.com/Bobsilvio/calcio-live` in HACS come INTEGRAZIONE.\
+   Add the repository `https://github.com/Bobsilvio/calcio-live` in HACS as an INTEGRATION.&#x20;
     ![INSTALLAZIONE](images/installazione-git.png)
 
-
-
-2. Cerca "Calcio Live" in HACS e installa l'integrazione.
+2. Cerca "Calcio Live" in HACS e installa l'integrazione.\
+   Search for "Calcio Live" in HACS and install the integration.&#x20;
     ![HACS](images/hacs.png)
 
+4. Vai su Impostazioni > Integrazione > Aggiungi Integrazione e cerca 'Calcio-Live'.\
+   Go to Settings > Integration > Add Integration and search for 'Calcio-Live'.
+
+5. Configura l'integrazione tramite l'interfaccia di Home Assistant.\
+   Configure the integration via the Home Assistant interface.
 
 
-4. Vai su Impostazioni > Integrazione > Aggiungi Integrazione e cerca 'Calcio-Live' 
+### NOTA / NOTE: !!!! NON DIMENTICARE IL PUNTO 7 - LE CARD VANNO INSTALLATE A PARTE COME PUNTO 1 e 2!!!!
 
+!!! DON'T FORGET POINT 7 - THE CARDS MUST BE INSTALLED SEPARATELY AS IN POINTS 1 AND 2 !!!
 
-
-
-5. Configura l'integrazione tramite l'interfaccia di Home Assistant.
-
-
-
-
-
-
-### NOTA: !!!! NON DIMENTICARE IL PUNTO 7 - LE CARD VANNO INSTALLATE A PARTE COME PUNTO 1 e 2!!!!
-
-
-
-
-
-6. Scegli il campionato da seguire o della tua squadra, è molto intuitivo i nomi sono assegnati automaticamente e la squadra la devi scegliere in base al campionato, ma non ti preoccupare, se non la trovi puoi inserire in fondo ad ogni campionato un id personale o all'inizio della configurazione.
-Nella versione v2.1.1 è stata introdotta la data, quindi puoi scegliere da che data a che data vedere le partite, puoi selezionare anche tutto il campionato inserendo 1 anno intero.
+5. Scegli il campionato da seguire o della tua squadra, è molto intuitivo...\
+   Choose the league or team to follow, it is very intuitive...
 
     <img src="images/integrazione1.png" alt="HACS" width="300"/>
     <img src="images/integrazione2.png" alt="HACS" width="300"/>
     <img src="images/integrazione3.png" alt="HACS" width="300"/>
     <img src="images/integrazione4.png" alt="HACS" width="300"/>
 
+### 7. Per la card, vai su: [https://github.com/Bobsilvio/calcio-live-card](https://github.com/Bobsilvio/calcio-live-card) e segui le istruzioni
 
-   
-
-
-
-
-### 7. Per la card, vai su: https://github.com/Bobsilvio/calcio-live-card e segui le istruzioni
-
+### For the card, go to: [https://github.com/Bobsilvio/calcio-live-card](https://github.com/Bobsilvio/calcio-live-card) and follow the instructions
 
 ### 8. Per evitare di caricare il sistema di registrazioni sui dati delle partite.
+### To avoid overloading the system with match data recordings.
+
 Nel configuration.yaml inserire questo codice:
 ```yaml
 recorder:
@@ -81,10 +75,13 @@ recorder:
   ```
 
 ## Note
-   Puoi seguire più campionati o più squadre
+    Puoi seguire più campionati o più squadre.\
+    You can follow multiple leagues or multiple teams.
    
 ## Automazioni
 ### Notifica 15 minuti prima dell'inizio della partita
+### Notification 15 minutes before match start
+
 <img src="images/inizio_partita.jpg" alt="iniziopartita" width="300"/>
 
 Notifica l'inizio della partita 15 minuti prima usando il sensore `sensor.calciolive_next...`.  
@@ -174,5 +171,6 @@ mode: queued
 
 ## Informazioni
 Questa è la mia prima card e sicuramente c'è tanto lavoro da fare, se vi piace, potete ricambiare seguendomi nei social:
+This is my first card, and there is definitely a lot of work to do...
 
 TikTok: @silviosmartalexa
