@@ -231,8 +231,8 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     response.raise_for_status()
                     data = await response.json()
                     # Estrai le date di inizio e fine dal calendario
-                    calendar_start_date = data.get("calendarStartDate", "2024-07-01T04:00Z")
-                    calendar_end_date = data.get("calendarEndDate", "2025-07-01T03:59Z")
+                    calendar_start_date = data.get("calendarStartDate", "2025-08-01T04:00Z")
+                    calendar_end_date = data.get("calendarEndDate", "2026-07-01T03:59Z")
                     return calendar_start_date[:10], calendar_end_date[:10]
         except Exception as e:
             _LOGGER.error(f"Errore nel recupero del calendario: {e}")
