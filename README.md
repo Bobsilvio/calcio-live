@@ -32,18 +32,14 @@ The "Calcio Live" integration for Home Assistant allows you to get real-time inf
 
 ## Installazione manuale tramite HACS / Manual Installation via HACS
 
-1. Aggiungi il repository `https://github.com/Bobsilvio/calcio-live` in HACS come INTEGRAZIONE.\
-   Add the repository `https://github.com/Bobsilvio/calcio-live` in HACS as an INTEGRATION.&#x20;
-    ![INSTALLAZIONE](images/installazione-git.png)
+1. ## 📦 Installation simple
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bobsilvio&repository=calcio-live&category=integration)
 
-2. Cerca "Calcio Live" in HACS e installa l'integrazione.\
-   Search for "Calcio Live" in HACS and install the integration.&#x20;
-    ![HACS](images/hacs.png)
 
-4. Vai su Impostazioni > Integrazione > Aggiungi Integrazione e cerca 'Calcio-Live'.\
+2. Vai su Impostazioni > Integrazione > Aggiungi Integrazione e cerca 'Calcio-Live'.\
    Go to Settings > Integration > Add Integration and search for 'Calcio-Live'.
 
-5. Configura l'integrazione tramite l'interfaccia di Home Assistant.\
+3. Configura l'integrazione tramite l'interfaccia di Home Assistant.\
    Configure the integration via the Home Assistant interface.
 
 
