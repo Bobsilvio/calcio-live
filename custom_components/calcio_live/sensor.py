@@ -202,20 +202,18 @@ class CalcioLiveSensor(Entity):
     
         season_start = season_start[:10].replace("-", "")
         season_end = season_end[:10].replace("-", "")
-    
-        standings_url = f"{self.base_url}/{self._code}/standings?"
-        scoreboard_url = f"{self.base_url_2}/{self._code}/scoreboard?limit=1000&dates={season_start}-{season_end}"
-        all_matches_today_url = f"{self.base_url_2}/all/scoreboard"
-        team_url_schedule_mixed = f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
-    
+
         if self._sensor_type == "standings":
-            return standings_url
+            return f"{self.base_url}/{self._code}/standings?"
+
         elif self._sensor_type in ("match_day", "team_match", "team_matches"):
-            return scoreboard_url
+            return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={season_start}-{season_end}"
+
         elif self._sensor_type == "team_matches_mixed" and self._team_name:
-            return team_url_schedule_mixed
+            return f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+
         elif self._sensor_type == "all_matches_today":
-            return all_matches_today_url
+            return f"{self.base_url_2}/all/scoreboard"
 
         return None
     
@@ -234,8 +232,8 @@ class CalcioLiveSensor(Entity):
                     response.raise_for_status()
                     data = await response.json()
                     # Estrai le date di inizio e fine dal calendario
-                    calendar_start_date = data.get("calendarStartDate", "2024-07-01T04:00Z")
-                    calendar_end_date = data.get("calendarEndDate", "2025-07-01T03:59Z")
+                    calendar_start_date = data.get("calendarStartDate", "2025-08-01T04:00Z")
+                    calendar_end_date = data.get("calendarEndDate", "2026-07-01T03:59Z")
                     return calendar_start_date, calendar_end_date
         except Exception as e:
             _LOGGER.error(f"Errore nel recupero del calendario: {e}")
@@ -262,39 +260,56 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type in ["team_matches", "team_match", "team_matches_mixed", "all_matches_today"]:
             def get_team_match_data(next_match_only=False):
                 return process_match_data(
-                    data, self.hass, team_name=self._team_name, next_match_only=next_match_only,
-                    start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d")
+                    data,
+                    self.hass,
+                    team_name=self._team_name,
+                    next_match_only=next_match_only,
+                    start_date=self._start_date.strftime("%Y-%m-%d"),
+                    end_date=self._end_date.strftime("%Y-%m-%d")
                 )
-
+            
+            
             if self._sensor_type in ["team_matches", "team_matches_mixed", "all_matches_today"]:
+                #sensor.calciolive_all_ita_1_internazionale - team_matches
+                #sensor.calciolive_all_mixed_internazionale - team_matches_mixed
                 match_data = get_team_match_data()
-                matches = match_data.get("matches", [])
+                matches = match_data.get("matches", []) or []
+                next_match = match_data.get("next_match")
+
                 if matches:
-                    live_matches = [m for m in matches if m["state"] == "in"]
+                    live_matches = [m for m in matches if m.get("state") == "in"]
                     if live_matches:
-                        self._state = f"{live_matches[0]['home_score']} - {live_matches[0]['away_score']} ({live_matches[0]['clock']})"
+                        lm = live_matches[0]
+                        self._state = f"{lm.get('home_score','?')} - {lm.get('away_score','?')} ({lm.get('clock','')})"
                     else:
                         self._state = f"{len(matches)} partite per {match_data.get('team_name', 'N/A')}"
+                else:
+                    self._state = "Nessuna partita disponibile"
+
                 self._attributes = {
                     "league_info": match_data.get("league_info", "N/A"),
                     "team_name": match_data.get("team_name", "N/A"),
                     "team_logo": match_data.get("team_logo", "N/A"),
-                    "matches": matches
+                    "matches": matches,
+                    "next_match": next_match,  # comodo per le template
                 }
 
             elif self._sensor_type == "team_match":
+                # sensor.calciolive_next_ita_1_internazionale
                 team_match = get_team_match_data(next_match_only=True)
-                matches = team_match.get("matches", [])
-                if matches:
-                    live_matches = [m for m in matches if m["state"] == "in"]
-                    if live_matches:
-                        next_match = live_matches[0]
-                        self._state = f"{next_match['home_score']} - {next_match['away_score']} ({next_match['clock']})"
+                matches = team_match.get("matches", []) or []
+                next_match = team_match.get("next_match")
+
+                if next_match:
+                    if next_match.get("state") == "in":
+                        self._state = f"{next_match.get('home_score','?')} - {next_match.get('away_score','?')} ({next_match.get('clock','')})"
                     else:
-                        next_match = matches[0]
-                        self._state = f"Prossimo match: {next_match.get('home_team', 'N/A')} vs {next_match.get('away_team', 'N/A')}"
-                    self._attributes = team_match
+                        self._state = f"Prossimo match: {next_match.get('home_team','N/A')} vs {next_match.get('away_team','N/A')}"
                 else:
                     self._state = "Nessuna partita disponibile"
-                    self._attributes = team_match
 
+                self._attributes = {
+                    **team_match,
+                    "matches": matches,
+                    "next_match": next_match,
+                }
