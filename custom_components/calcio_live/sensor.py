@@ -367,7 +367,9 @@ class CalcioLiveSensor(Entity):
                 "away_score": away_score,
                 "venue": match.get("venue", "N/A"),
                 "match_status": match.get("status", "N/A"),
-                "season_info": match.get("season_info", "N/A"),  # ← NUOVO!
+                "season_info": match.get("season_info", "N/A"),
+                "league_name": match.get("league_name", "N/A"),  # ← NUOVO: Nome della lega
+                "competition_code": self._code,
                 "sensor_name": self._name,
             }
             self.hass.bus.fire("calcio_live_goal", event_data)
@@ -423,6 +425,10 @@ class CalcioLiveSensor(Entity):
                 "home_score": match.get("home_score", "N/A"),
                 "away_score": match.get("away_score", "N/A"),
                 "venue": match.get("venue", "N/A"),
+                "match_status": match.get("status", "N/A"),
+                "season_info": match.get("season_info", "N/A"),
+                "league_name": match.get("league_name", "N/A"),  # ← NUOVO: Nome della lega
+                "competition_code": self._code,  # ← Per filtrare accuratamente per lega
                 "sensor_name": self._name,
             }
             self.hass.bus.fire(event_type, event_data)
@@ -456,10 +462,13 @@ class CalcioLiveSensor(Entity):
                 "away_score": match.get("away_score", "N/A"),
                 "final_status": match.get("status", "N/A"),
                 "venue": match.get("venue", "N/A"),
+                "match_status": match.get("status", "N/A"),
                 "date": match.get("date", "N/A"),
+                "competition_code": self._code,  # ← Per filtrare accuratamente per lega
                 "season_info": match.get("season_info", "N/A"),
-                "goal_scorers": goal_scorers,  # ← NUOVO!
-                "goal_scorers_str": ", ".join(goal_scorers) if goal_scorers else "N/A",  # ← Versione stringa
+                "league_name": match.get("league_name", "N/A"),  # ← NUOVO: Nome della lega
+                "goal_scorers": goal_scorers,
+                "goal_scorers_str": ", ".join(goal_scorers) if goal_scorers else "N/A",
                 "sensor_name": self._name,
             }
             self.hass.bus.fire("calcio_live_match_finished", event_data)

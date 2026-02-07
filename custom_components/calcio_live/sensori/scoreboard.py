@@ -75,7 +75,10 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
             season_info = get_season_slug_or_displayname(match)
 
             competitions = match.get("competitions", [])
-            competitors = competitions[0].get("competitors", [])
+            # Estrai il nome della lega/competizione
+            league_name = competitions[0].get("league", {}).get("displayName", "N/A") if competitions else "N/A"
+            
+            competitors = competitions[0].get("competitors", []) if competitions else []
 
             home_team_data = competitors[0].get("team", {})
             home_team = home_team_data.get("displayName", "N/A")
@@ -111,6 +114,7 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
             match_data = {
                 "date": _parse_date(hass, match.get("date")),
                 "season_info": season_info, #per il mixed
+                "league_name": league_name,  # ← NUOVO: Nome della competizione
                 "home_team": home_team,
                 "home_logo": home_logo,
                 "home_form": home_form,

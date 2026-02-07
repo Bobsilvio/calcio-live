@@ -753,12 +753,80 @@ mode: queued
 
 | Evento | Quando si Attiva | Dati |
 |---|---|---|
-| `calcio_live_goal` | Quando una squadra segna un goal | `team`, `player` ⭐, `opponent`, `goals_scored`, `home_team`, `away_team`, `home_score`, `away_score`, `venue`, `match_status`, `season_info` |
-| `calcio_live_yellow_card` | Quando viene mostrato un cartellino giallo | `player` ⭐, `card_type`, `minute`, `home_team`, `away_team`, `home_score`, `away_score` |
-| `calcio_live_red_card` | Quando viene mostrato un cartellino rosso | `player` ⭐, `card_type`, `minute`, `home_team`, `away_team`, `home_score`, `away_score` |
-| `calcio_live_match_finished` | Quando la partita finisce (Full Time) | `home_team`, `away_team`, `home_score`, `away_score`, `final_status`, `date`, `venue`, `season_info`, `goal_scorers` ⭐, `goal_scorers_str` ⭐ |
+| `calcio_live_goal` | Quando una squadra segna un goal | `team`, `player` ⭐, `opponent`, `goals_scored`, `home_team`, `away_team`, `home_score`, `away_score`, `venue`, `match_status`, `season_info`, `league_name` 🏆, `competition_code` 🏆 |
+| `calcio_live_yellow_card` | Quando viene mostrato un cartellino giallo | `player` ⭐, `card_type`, `minute`, `home_team`, `away_team`, `home_score`, `away_score`, `league_name` 🏆, `competition_code` 🏆 |
+| `calcio_live_red_card` | Quando viene mostrato un cartellino rosso | `player` ⭐, `card_type`, `minute`, `home_team`, `away_team`, `home_score`, `away_score`, `league_name` 🏆, `competition_code` 🏆 |
+| `calcio_live_match_finished` | Quando la partita finisce (Full Time) | `home_team`, `away_team`, `home_score`, `away_score`, `final_status`, `date`, `venue`, `season_info`, `league_name` 🏆, `competition_code` 🏆, `goal_scorers` ⭐, `goal_scorers_str` ⭐ |
 
-⭐ = **Contiene il nome del giocatore/evento!**
+⭐ = **Contiene il nome del giocatore/evento!**  
+🏆 = **Nuovo in v2.4+! Permette il filtraggio accurato per competizione/lega**
+
+---
+
+## 🏆 Filtrare per Competizione/Lega (NUOVO - v2.4+)
+
+Adesso puoi filtrare gli eventi per una **competizione specifica** usando tre metodi:
+
+### Metodo 1: Per Nome Lega (CONSIGLIATO ✨)
+Usa `league_name` per filtrare in modo leggibile:
+
+```yaml
+# Solo Serie A
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Serie A' }}"
+
+# Solo Premier League
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Premier League' }}"
+
+# Solo La Liga
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'La Liga' }}"
+
+# Solo Ligue 1
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Ligue 1' }}"
+
+# Solo Bundesliga
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Bundesliga' }}"
+
+# Solo Champions League
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'UEFA Champions League' }}"
+```
+
+### Metodo 2: Per Competition Code (Se usi sensore specifico)
+```yaml
+# Solo Serie A (ita.1)
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.competition_code == 'ita.1' }}"
+
+# Solo Premier League (eng.1)
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.competition_code == 'eng.1' }}"
+
+# Solo La Liga (esp.1)
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.competition_code == 'esp.1' }}"
+```
+
+### Metodo 3: Per Season Info (Fallback)
+```yaml
+# Solo Serie A
+condition:
+  - condition: template
+    value_template: "{{ 'italian-serie-a' in trigger.event.data.season_info.lower() }}"
+```
 
 ---
 
@@ -816,7 +884,7 @@ trigger:
     event_type: calcio_live_goal
 condition:
   - condition: template
-    value_template: "{{ 'italian-serie-a' in trigger.event.data.season_info | lower }}"
+    value_template: "{{ trigger.event.data.league_name == 'Serie A' }}"
 action:
   - service: notify.mobile_app_xxx
     data:
@@ -975,7 +1043,7 @@ trigger:
     event_type: calcio_live_match_finished
 condition:
   - condition: template
-    value_template: "{{ 'italian-serie-a' in trigger.event.data.season_info | lower }}"
+    value_template: "{{ trigger.event.data.league_name == 'Serie A' }}"
 action:
   - service: notify.mobile_app_xxx
     data:
@@ -1038,6 +1106,100 @@ action:
         {% else %}
         Pareggio senza goal
         {% endif %}
+mode: queued
+```
+
+---
+
+## 🏆 Automazioni Per Competizione Specifica (NUOVO - v2.4+)
+
+### Goal solo Premier League
+```yaml
+alias: CalcioLive - Goal Premier League
+description: Notifica i goal della Premier League
+trigger:
+  - platform: event
+    event_type: calcio_live_goal
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Premier League' }}"
+action:
+  - service: notify.mobile_app_xxx
+    data:
+      title: "⚽ GOAL PREMIER!"
+      message: >
+        {{ trigger.event.data.player }} segna!
+        
+        {{ trigger.event.data.home_team }} {{ trigger.event.data.home_score }} - 
+        {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
+mode: queued
+```
+
+### Goal solo La Liga
+```yaml
+alias: CalcioLive - Goal La Liga
+description: Notifica i goal della La Liga
+trigger:
+  - platform: event
+    event_type: calcio_live_goal
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'La Liga' }}"
+action:
+  - service: notify.mobile_app_xxx
+    data:
+      title: "⚽ GOAL LA LIGA!"
+      message: >
+        {{ trigger.event.data.player }} segna!
+        
+        {{ trigger.event.data.home_team }} {{ trigger.event.data.home_score }} - 
+        {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
+mode: queued
+```
+
+### Goal solo Champions League
+```yaml
+alias: CalcioLive - Goal Champions League
+description: Notifica i goal della Champions League
+trigger:
+  - platform: event
+    event_type: calcio_live_goal
+condition:
+  - condition: template
+    value_template: "{{ 'UEFA Champions League' in trigger.event.data.league_name }}"
+action:
+  - service: notify.mobile_app_xxx
+    data:
+      title: "⚽ GOAL CHAMPIONS!"
+      message: >
+        {{ trigger.event.data.player }} segna in coppa!
+        
+        {{ trigger.event.data.home_team }} {{ trigger.event.data.home_score }} - 
+        {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
+        
+        Stadio: {{ trigger.event.data.venue }}
+mode: queued
+```
+
+### Match Finished solo Serie A
+```yaml
+alias: CalcioLive - Risultati Serie A Finali
+description: Notifica i risultati finali della Serie A
+trigger:
+  - platform: event
+    event_type: calcio_live_match_finished
+condition:
+  - condition: template
+    value_template: "{{ trigger.event.data.league_name == 'Serie A' }}"
+action:
+  - service: notify.mobile_app_xxx
+    data:
+      title: "⚽ SERIE A - Risultato Finale"
+      message: >
+        {{ trigger.event.data.home_team }} {{ trigger.event.data.home_score }} - 
+        {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
+        
+        Goal segnati da: {{ trigger.event.data.goal_scorers_str }}
 mode: queued
 ```
 
