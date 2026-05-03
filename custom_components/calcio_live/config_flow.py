@@ -13,6 +13,7 @@ OPTION_SELECT_CAMPIONATO = "Campionato"
 OPTION_SELECT_TEAM = "Team"
 OPTION_MANUAL_TEAM = "Inserimento Manuale ID"
 OPTION_ALL_TODAY = "Tutte le partite del giorno"
+OPTION_NEWS = "Notizie"
 
 @config_entries.HANDLERS.register(DOMAIN)
 class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -44,7 +45,10 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title="Tutte le partite di oggi",
                     data=self._data,
                 )
-            
+
+            elif selection == OPTION_NEWS:
+                self._data.update(user_input)
+                return await self.async_step_news_competition()
 
             elif selection == OPTION_MANUAL_TEAM:
                 self._data.update(user_input)
@@ -53,7 +57,7 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required("selection", default=OPTION_SELECT_CAMPIONATO): vol.In([OPTION_SELECT_CAMPIONATO, OPTION_SELECT_TEAM, OPTION_ALL_TODAY, OPTION_MANUAL_TEAM]),
+                vol.Required("selection", default=OPTION_SELECT_CAMPIONATO): vol.In([OPTION_SELECT_CAMPIONATO, OPTION_SELECT_TEAM, OPTION_ALL_TODAY, OPTION_NEWS, OPTION_MANUAL_TEAM]),
             }),
             errors=self._errors,
             description_placeholders={
@@ -63,8 +67,36 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "- **Campionato**: per monitorare tutte le partite di un campionato.\n"
                     "- **Squadra**: per monitorare una specifica squadra.\n"
                     "- **Tutte**: per monitorare tutte le partite della giornata (di tutto il mondo).\n"
+                    "- **Notizie**: feed news di una competizione.\n"
                     "- **Inserimento Manuale**: se conosci l'ID della squadra specifica."
                 )
+            }
+        )
+
+    async def async_step_news_competition(self, user_input=None):
+        if user_input is not None:
+            competition_code = user_input.get("competition_code")
+            competition_name = await self._get_competition_name(competition_code)
+            self._data.update({
+                "competition_code": competition_code,
+                "name": f"News {competition_name}",
+                "selection": "News",
+            })
+            return self.async_create_entry(
+                title=f"News {competition_name}",
+                data=self._data,
+            )
+
+        competitions = await self._get_competitions()
+        sorted_competitions = {k: v for k, v in sorted(competitions.items(), key=lambda item: item[1])}
+        return self.async_show_form(
+            step_id="news_competition",
+            data_schema=vol.Schema({
+                vol.Required("competition_code"): vol.In(sorted_competitions),
+            }),
+            errors=self._errors,
+            description_placeholders={
+                "description": "Scegli la competizione da cui ricevere le notizie."
             }
         )
 

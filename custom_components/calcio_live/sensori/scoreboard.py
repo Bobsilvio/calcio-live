@@ -103,33 +103,67 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
             status_type = match.get("status", {}).get("type", {})
             match_state = status_type.get("state", "N/A")
             match_status = status_type.get("description", "N/A")
+            status_detail = status_type.get("detail", "N/A")
             clock = match.get("status", {}).get("displayClock", "N/A")
             period = match.get("status", {}).get("period", "N/A")
-            venue = competitions[0].get("venue", {}).get("fullName", "N/A")
+
+            venue_obj = competitions[0].get("venue", {}) or {}
+            venue = venue_obj.get("fullName", "N/A")
+            venue_address = venue_obj.get("address", {}) or {}
+            venue_city = venue_address.get("city", "N/A")
+            venue_country = venue_address.get("country", "N/A")
+
+            home_abbrev = home_team_data.get("abbreviation", "N/A")
+            home_color = home_team_data.get("color", "N/A")
+            home_record = _get_record(competitors[0])
+            home_top_scorer = _get_top_scorer(competitors[0])
+
+            away_abbrev = away_team_data.get("abbreviation", "N/A")
+            away_color = away_team_data.get("color", "N/A")
+            away_record = _get_record(competitors[1])
+            away_top_scorer = _get_top_scorer(competitors[1])
+
+            broadcast = _get_broadcast(competitions[0])
+            attendance = competitions[0].get("attendance", 0)
+
             match_details = _get_details(competitions[0].get("details", []))
 
             if team_name and (team_name.lower() in home_team.lower() or team_name.lower() in away_team.lower()):
                 team_logo = home_logo if team_name.lower() in home_team.lower() else away_logo
 
             match_data = {
+                "event_id": match.get("id"),
                 "date": _parse_date(hass, match.get("date")),
                 "season_info": season_info, #per il mixed
                 "league_name": league_name,  # ← NUOVO: Nome della competizione
                 "home_team": home_team,
+                "home_abbrev": home_abbrev,
+                "home_color": home_color,
                 "home_logo": home_logo,
                 "home_form": home_form,
                 "home_score": home_score,
                 "home_statistics": home_statistics,
+                "home_record": home_record,
+                "home_top_scorer": home_top_scorer,
                 "away_team": away_team,
+                "away_abbrev": away_abbrev,
+                "away_color": away_color,
                 "away_logo": away_logo,
                 "away_form": away_form,
                 "away_score": away_score,
                 "away_statistics": away_statistics,
+                "away_record": away_record,
+                "away_top_scorer": away_top_scorer,
                 "state": match_state,
                 "status": match_status,
+                "status_detail": status_detail,
                 "clock": clock,
                 "period": period,
                 "venue": venue,
+                "venue_city": venue_city,
+                "venue_country": venue_country,
+                "broadcast": broadcast,
+                "attendance": attendance,
                 "match_details": match_details,
             }
             matches.append(match_data)
@@ -206,6 +240,145 @@ def _get_statistics(competitor):
         stat_value = stat.get("displayValue", "N/A")
         statistics[stat_name] = stat_value
     return statistics
+
+def _get_record(competitor):
+    """Restituisce il record stagionale della squadra (es. '14-6-14' = V-N-P)."""
+    records = competitor.get("records", []) or []
+    if records:
+        return records[0].get("summary", "")
+    return ""
+
+def _get_top_scorer(competitor):
+    """Restituisce il capocannoniere della squadra: {name, short_name, value}."""
+    leaders = competitor.get("leaders", []) or []
+    for ldr in leaders:
+        if ldr.get("name") == "goals":
+            tops = ldr.get("leaders", []) or []
+            if tops:
+                t = tops[0]
+                athlete = t.get("athlete", {}) or {}
+                return {
+                    "name": athlete.get("displayName", ""),
+                    "short_name": athlete.get("shortName", ""),
+                    "value": t.get("displayValue", ""),
+                }
+    return None
+
+def _get_broadcast(competition):
+    """Restituisce il primo canale TV/streaming disponibile."""
+    gbs = competition.get("geoBroadcasts", []) or []
+    if gbs:
+        media = gbs[0].get("media", {}) or {}
+        return media.get("shortName", "")
+    return ""
+
+def process_summary_data(data):
+    """Estrae lineup, formazioni, key events e head-to-head dal summary endpoint.
+    Restituisce un dict con: lineup_home, lineup_away, formation_home, formation_away,
+    key_events, head_to_head."""
+    out = {
+        "lineup_home": [],
+        "lineup_away": [],
+        "formation_home": "",
+        "formation_away": "",
+        "key_events": [],
+        "head_to_head": [],
+    }
+    try:
+        rosters = data.get("rosters", []) or []
+        for r in rosters:
+            home_away = r.get("homeAway", "")
+            formation = r.get("formation", "")
+            roster = r.get("roster", []) or []
+            players = []
+            for p in roster:
+                a = p.get("athlete", {}) or {}
+                players.append({
+                    "id": a.get("id", ""),
+                    "name": a.get("displayName", ""),
+                    "short_name": a.get("shortName", ""),
+                    "jersey": p.get("jersey", ""),
+                    "position": (p.get("position", {}) or {}).get("abbreviation", ""),
+                    "starter": p.get("starter", False),
+                    "headshot": (a.get("headshot", {}) or {}).get("href", ""),
+                })
+            if home_away == "home":
+                out["lineup_home"] = players
+                out["formation_home"] = formation
+            elif home_away == "away":
+                out["lineup_away"] = players
+                out["formation_away"] = formation
+
+        key_events = data.get("keyEvents", []) or []
+        for ev in key_events:
+            t = ev.get("type", {}) or {}
+            clock = (ev.get("clock", {}) or {}).get("displayValue", "")
+            team = (ev.get("team", {}) or {}).get("displayName", "")
+            participants = ev.get("participants", []) or []
+            athletes = []
+            for p in participants:
+                a = p.get("athlete", {}) or {}
+                athletes.append(a.get("displayName", ""))
+            out["key_events"].append({
+                "type": t.get("type", ""),
+                "type_text": t.get("text", ""),
+                "text": ev.get("text", ""),
+                "short_text": ev.get("shortText", ""),
+                "clock": clock,
+                "team": team,
+                "athletes": athletes,
+                "scoring_play": ev.get("scoringPlay", False),
+            })
+
+        h2h = data.get("headToHeadGames", []) or []
+        for game in h2h:
+            events = game.get("events", []) or []
+            for e in events[:10]:
+                comp = (e.get("competitions", []) or [{}])[0]
+                competitors = comp.get("competitors", []) or []
+                if len(competitors) < 2:
+                    continue
+                home_c = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+                away_c = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+                out["head_to_head"].append({
+                    "date": e.get("date", ""),
+                    "home_team": (home_c.get("team", {}) or {}).get("displayName", ""),
+                    "home_logo": (home_c.get("team", {}) or {}).get("logo", ""),
+                    "home_score": home_c.get("score", ""),
+                    "away_team": (away_c.get("team", {}) or {}).get("displayName", ""),
+                    "away_logo": (away_c.get("team", {}) or {}).get("logo", ""),
+                    "away_score": away_c.get("score", ""),
+                })
+    except Exception as e:
+        _LOGGER.error(f"Errore nel processare summary: {e}")
+    return out
+
+def process_news_data(data):
+    """Estrae lista articoli dal news endpoint."""
+    articles = []
+    try:
+        items = data.get("articles", []) or []
+        for a in items:
+            images = a.get("images", []) or []
+            img = images[0].get("url", "") if images else ""
+            categories = a.get("categories", []) or []
+            cat_name = ""
+            for c in categories:
+                if c.get("type") == "league":
+                    cat_name = c.get("description", "") or (c.get("league", {}) or {}).get("description", "")
+                    break
+            articles.append({
+                "headline": a.get("headline", ""),
+                "description": a.get("description", ""),
+                "published": a.get("published", ""),
+                "image": img,
+                "link": (a.get("links", {}) or {}).get("web", {}).get("href", "") or a.get("link", ""),
+                "category": cat_name,
+                "type": a.get("type", ""),
+            })
+    except Exception as e:
+        _LOGGER.error(f"Errore nel processare news: {e}")
+    return articles
 
 def _get_details(details):
     events = []

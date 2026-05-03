@@ -9,6 +9,28 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import random
 from .const import DOMAIN, _LOGGER
 
+# Competizioni con fase a eliminazione diretta (knockout bracket)
+KNOCKOUT_LEAGUES = {
+    "uefa.champions",
+    "uefa.europa",
+    "uefa.europa.conf",
+    "uefa.euro",
+    "uefa.nations",
+    "uefa.wchampions",
+    "fifa.world",
+    "fifa.wwc",
+    "fifa.cwc",
+    "concacaf.champions",
+    "concacaf.gold",
+    "concacaf.nations.league",
+    "ita.coppa_italia",
+    "eng.fa",
+    "eng.league_cup",
+    "esp.copa_del_rey",
+    "ger.dfb_pokal",
+    "fra.coupe_de_france",
+}
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     try:
         competition_name = entry.data.get("name")
@@ -36,6 +58,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         
         _LOGGER.debug(f"Calcio Live Config Entry: {entry.data}")  # Log per capire cosa c'è nell'entry
     
+        if selection == "News":
+            comp_norm = competition_code.replace(" ", "_").replace(".", "_").lower()
+            sensors += [
+                CalcioLiveSensor(
+                    hass, f"calciolive_news_{comp_norm}", competition_code, "news",
+                    base_scan_interval + timedelta(minutes=10) + timedelta(seconds=random.randint(0, 30)),
+                    config_entry_id=entry.entry_id,
+                    start_date=start_date, end_date=end_date, team_id=team_id
+                )
+            ]
+            async_add_entities(sensors, True)
+            return
+
         if team_name:
             team_name_normalized = team_name.replace(" ", "_").replace(".", "_").lower()
             competition_name = competition_code.replace(" ", "_").replace(".", "_").lower()
@@ -81,6 +116,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         start_date=start_date, end_date=end_date, team_id=team_id
                     )
                 ]
+                # Auto-aggiungi il sensor bracket per competizioni con fase KO
+                if competition_code in KNOCKOUT_LEAGUES:
+                    sensors.append(
+                        CalcioLiveSensor(
+                            hass, f"calciolive_bracket_{competition_name}", competition_code, "bracket",
+                            base_scan_interval + timedelta(minutes=10) + timedelta(seconds=random.randint(0, 30)),
+                            config_entry_id=entry.entry_id,
+                            start_date=start_date, end_date=end_date, team_id=team_id
+                        )
+                    )
 
         async_add_entities(sensors, True)
 
@@ -200,6 +245,7 @@ class CalcioLiveSensor(Entity):
                             _LOGGER.debug(f"Data received for {self._name}: {data}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                             self._process_data(data)
+                            await self._enrich_with_summary()
                             _LOGGER.info(f"Finished update for {self._name}")
                             break
                         else:
@@ -212,6 +258,27 @@ class CalcioLiveSensor(Entity):
                 await asyncio.sleep(5)
                 retries += 1
 
+    async def _enrich_with_summary(self):
+        """Per il sensor team_match, aggiunge lineup/formazione/keyEvents/h2h
+        chiamando l'endpoint summary?event=ID per la partita corrente."""
+        if self._sensor_type != "team_match":
+            return
+        matches = self._attributes.get("matches") or []
+        if not matches:
+            return
+        first = matches[0]
+        event_id = first.get("event_id")
+        if not event_id:
+            return
+        summary = await self._fetch_match_summary(event_id)
+        if not summary:
+            return
+        from .sensori.scoreboard import process_summary_data
+        summary_data = process_summary_data(summary)
+        # Inietta nel match e a livello top per accesso comodo dalle card
+        first.update(summary_data)
+        self._attributes.update(summary_data)
+
     
     async def _build_url(self):
         base_url    = "https://site.web.api.espn.com/apis/v2/sports/soccer"
@@ -220,7 +287,23 @@ class CalcioLiveSensor(Entity):
         season_data = ""
         season_start = ""
         season_end = ""
-    
+
+        # Per news e standings non serve il calendario: skip per evitare chiamate API inutili
+        if self._sensor_type == "news":
+            return f"{self.base_url_2}/{self._code}/news?limit=15"
+
+        if self._sensor_type == "bracket":
+            # Per il bracket prendo date che coprono l'intera fase KO (Feb→Lug)
+            # Determinazione anno: se siamo nella seconda parte della stagione (Feb-Lug) usa anno corrente,
+            # altrimenti anno successivo (la fase KO è sempre nella seconda parte)
+            from datetime import datetime as _dt
+            now = _dt.now()
+            if now.month >= 8:
+                ko_year = now.year + 1
+            else:
+                ko_year = now.year
+            return f"{self.base_url_3}/{self._code}/scoreboard?limit=300&dates={ko_year}0201-{ko_year}0731"
+
         if self._code:
             season_start, season_end = await self._get_calendar_data()
 
@@ -244,6 +327,23 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type == "all_matches_today":
             return f"{self.base_url_2}/all/scoreboard"
 
+        elif self._sensor_type == "news":
+            return f"{self.base_url_2}/{self._code}/news?limit=15"
+
+        return None
+
+    async def _fetch_match_summary(self, event_id):
+        """Recupera il summary completo (lineup, formation, key events) per una partita."""
+        if not event_id or not self._code:
+            return None
+        url = f"{self.base_url_2}/{self._code}/summary?event={event_id}"
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url, headers={"Accept-Language": "en"}) as response:
+                    if response.status == 200:
+                        return await response.json()
+        except Exception as e:
+            _LOGGER.debug(f"Errore nel recupero summary per {event_id}: {e}")
         return None
     
     
@@ -639,7 +739,33 @@ class CalcioLiveSensor(Entity):
         return computed
 
     def _process_data(self, data):
-        from .sensori.scoreboard import process_match_data
+        from .sensori.scoreboard import process_match_data, process_news_data
+
+        if self._sensor_type == "news":
+            articles = process_news_data(data)
+            self._state = f"{len(articles)} articoli" if articles else "Nessun articolo"
+            self._attributes = {
+                "articles": articles,
+                "competition_code": self._code,
+            }
+            return
+
+        if self._sensor_type == "bracket":
+            from .sensori.bracket import process_bracket_data
+            bracket = process_bracket_data(data)
+            rounds = bracket.get("rounds", [])
+            if rounds:
+                # Stato: nome dell'ultimo round disponibile (più avanzato)
+                last = rounds[-1]
+                self._state = f"{last.get('name')} ({last.get('size')} squadre)"
+            else:
+                self._state = "Bracket non disponibile"
+            self._attributes = {
+                "rounds": rounds,
+                "ties_count": bracket.get("ties_count", 0),
+                "competition_code": self._code,
+            }
+            return
 
         if self._sensor_type == "standings":
             from .sensori.classifica import classifica_data
