@@ -3,39 +3,64 @@
         "step": {
             "user": {
                 "title": "Calcio Live Konfiguration",
-                "description": "Willkommen zum Konfigurationsassistenten von Calcio Live.\n\nBitte wählen Sie eine der folgenden Optionen, um einen Sensor zu erstellen:\n\n- **Liga**: Verfolgen Sie alle Spiele einer bestimmten Liga.\n- **Team**: Verfolgen Sie die Spiele eines bestimmten Teams.\n- **Manuelle Eingabe**: Wenn Sie die Team-ID kennen, können Sie diese manuell eingeben.",
+                "description": "Willkommen zum Konfigurationsassistenten von Calcio Live.\n\nWählen Sie aus, was Sie verfolgen möchten:\n\n- **Liga**: alle Spiele einer bestimmten Liga (für Pokalwettbewerbe wird automatisch ein K.O.-Bracket-Sensor erstellt).\n- **Team**: Spiele eines bestimmten Teams.\n- **Alle Spiele heute**: alle heute weltweit gespielten Spiele.\n- **News**: News-Feed eines Wettbewerbs.\n- **Manuelle Eingabe**: Team-ID manuell eingeben.",
                 "data": {
-                    "selection": "Wählen Sie aus und klicken Sie auf 'Senden'"
+                    "selection": "Was möchten Sie verfolgen?"
+                }
+            },
+            "news_competition": {
+                "title": "News · Wettbewerbsauswahl",
+                "description": "Wählen Sie den Wettbewerb, dessen News Sie erhalten möchten.",
+                "data": {
+                    "competition_code": "Wettbewerb"
                 }
             },
             "campionato": {
                 "title": "Liga auswählen",
-                "description": "Wählen Sie die Liga, die Sie überwachen möchten.\n\nDieser Sensor zeigt alle Spiele der ausgewählten Liga an.",
+                "description": "Wählen Sie die Liga, die Sie verfolgen möchten.\n\nEs werden alle Spiele der Teams der ausgewählten Liga angezeigt. Für Pokalwettbewerbe (Champions League, Europa League, Coppa Italia usw.) wird automatisch ein K.O.-Bracket-Sensor erstellt.",
                 "data": {
-                    "competition_code": "Ligencode"
+                    "competition_code": "Wettbewerb"
+                }
+            },
+            "select_competition_for_team": {
+                "title": "Team · Ligaauswahl",
+                "description": "Wählen Sie die Liga, in der das Team spielt, das Sie verfolgen möchten.\n\nIm nächsten Schritt wählen Sie das Team aus der Liste.",
+                "data": {
+                    "competition_code": "Wettbewerb"
                 }
             },
             "team": {
                 "title": "Team auswählen",
-                "description": "Wählen Sie das Team, das Sie verfolgen möchten.\n\nDieser Sensor zeigt nur die Spiele des ausgewählten Teams an.",
+                "description": "Wählen Sie das Team, das Sie verfolgen möchten.\n\nEs werden nur die Spiele des ausgewählten Teams angezeigt.",
                 "data": {
-                    "team_id": "Team-ID"
+                    "team_id": "Team"
                 }
             },
             "manual_team": {
                 "title": "Manuelle Eingabe",
-                "description": "Geben Sie die Team-ID ein, die Sie überwachen möchten.\n\nOptional können Sie auch einen benutzerdefinierten Namen für das Team eingeben.",
+                "description": "Geben Sie die Team-ID manuell ein.\n\nOptional können Sie einen benutzerdefinierten Anzeigenamen vergeben.",
                 "data": {
-                    "manual_team_id": "Team-ID (manuell)",
-                    "name": "Benutzerdefinierter Teamname (optional)"
+                    "manual_team_id": "Team-ID",
+                    "name": "Benutzerdefinierter Name (optional)"
                 }
             },
             "dates": {
-                "title": "Zeitraum konfigurieren",
-                "description": "Geben Sie den Zeitraum an, in dem die Spiele überwacht werden sollen.\n\n- **Startdatum**: Ab wann die Spiele überwacht werden.\n- **Enddatum**: Bis wann die Spiele überwacht werden.\n\nBeide Daten müssen im Format **JJJJ-MM-TT** eingegeben werden.",
+                "title": "Überwachungszeitraum",
+                "description": "Geben Sie den Datumsbereich an, der überwacht werden soll.\n\n- **Startdatum**: ab wann überwachen.\n- **Enddatum**: bis wann überwachen.\n\nFormat: **JJJJ-MM-TT**.",
                 "data": {
                     "start_date": "Startdatum (JJJJ-MM-TT)",
                     "end_date": "Enddatum (JJJJ-MM-TT)"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Calcio Live Optionen",
+                "description": "Polling-Verhalten konfigurieren.",
+                "data": {
+                    "scan_interval": "Aktualisierungsintervall (Minuten)"
                 }
             }
         }

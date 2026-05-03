@@ -3,39 +3,64 @@
         "step": {
             "user": {
                 "title": "Configuration de Calcio Live",
-                "description": "Bienvenue dans l'assistant de configuration de Calcio Live.\n\nChoisissez parmi les options suivantes pour créer un capteur :\n\n- **Championnat** : Suivre tous les matchs d'un championnat spécifique.\n- **Équipe** : Suivre les matchs d'une équipe spécifique.\n- **Saisie manuelle** : Si vous connaissez l'ID de l'équipe, vous pouvez le configurer manuellement.",
+                "description": "Bienvenue dans l'assistant de configuration de Calcio Live.\n\nChoisissez ce que vous souhaitez suivre :\n\n- **Championnat** : tous les matchs d'un championnat spécifique (un capteur tableau est créé automatiquement pour les coupes).\n- **Équipe** : matchs d'une équipe spécifique.\n- **Tous les matchs du jour** : tous les matchs joués aujourd'hui dans le monde.\n- **Actualités** : flux d'actualités d'une compétition.\n- **Saisie manuelle** : saisir l'ID de l'équipe manuellement.",
                 "data": {
-                    "selection": "Sélectionnez et cliquez sur envoyer"
+                    "selection": "Que souhaitez-vous suivre ?"
+                }
+            },
+            "news_competition": {
+                "title": "Actualités · choix de la compétition",
+                "description": "Sélectionnez la compétition dont vous souhaitez recevoir les actualités.",
+                "data": {
+                    "competition_code": "Compétition"
                 }
             },
             "campionato": {
-                "title": "Sélectionnez un Championnat",
-                "description": "Choisissez le championnat que vous souhaitez surveiller.\n\nCela affichera tous les matchs des équipes dans le championnat sélectionné.",
+                "title": "Sélectionnez le championnat",
+                "description": "Choisissez le championnat à suivre.\n\nLes matchs de toutes les équipes du championnat sélectionné seront affichés. Pour les coupes (Ligue des Champions, Ligue Europa, Coupe d'Italie, etc.) un capteur tableau de la phase à élimination directe est créé automatiquement.",
                 "data": {
-                    "competition_code": "Code du championnat"
+                    "competition_code": "Compétition"
+                }
+            },
+            "select_competition_for_team": {
+                "title": "Équipe · choix du championnat",
+                "description": "Sélectionnez le championnat dans lequel évolue l'équipe que vous souhaitez suivre.\n\nÀ l'étape suivante vous choisirez l'équipe dans la liste.",
+                "data": {
+                    "competition_code": "Compétition"
                 }
             },
             "team": {
-                "title": "Sélectionnez une Équipe",
-                "description": "Choisissez l'équipe que vous souhaitez suivre.\n\nCela affichera uniquement les matchs de l'équipe sélectionnée.",
+                "title": "Sélectionnez l'équipe",
+                "description": "Choisissez l'équipe que vous souhaitez suivre.\n\nSeuls les matchs de l'équipe sélectionnée seront affichés.",
                 "data": {
-                    "team_id": "ID de l'équipe"
+                    "team_id": "Équipe"
                 }
             },
             "manual_team": {
-                "title": "Saisie Manuelle",
-                "description": "Saisissez manuellement l'ID de l'équipe que vous souhaitez suivre.\n\nVous pouvez également fournir un nom personnalisé pour une identification plus facile.",
+                "title": "Saisie manuelle",
+                "description": "Saisissez manuellement l'ID de l'équipe que vous souhaitez suivre.\n\nVous pouvez également fournir un nom personnalisé pour l'identifier facilement.",
                 "data": {
-                    "manual_team_id": "ID de l'équipe (manuelle)",
-                    "name": "Nom personnalisé de l'équipe (facultatif)"
+                    "manual_team_id": "ID de l'équipe",
+                    "name": "Nom personnalisé (facultatif)"
                 }
             },
             "dates": {
-                "title": "Configurer les Dates",
-                "description": "Spécifiez la période de surveillance des matchs.\n\n- **Date de début** : À partir de quand commencer à surveiller.\n- **Date de fin** : Jusqu'à quand surveiller.\n\nLes deux dates doivent être au format **AAAA-MM-JJ**.",
+                "title": "Période de suivi",
+                "description": "Spécifiez la plage de dates à suivre.\n\n- **Date de début** : à partir de quand suivre.\n- **Date de fin** : jusqu'à quand suivre.\n\nFormat : **AAAA-MM-JJ**.",
                 "data": {
                     "start_date": "Date de début (AAAA-MM-JJ)",
                     "end_date": "Date de fin (AAAA-MM-JJ)"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Options Calcio Live",
+                "description": "Configurer le comportement de polling.",
+                "data": {
+                    "scan_interval": "Intervalle de mise à jour (minutes)"
                 }
             }
         }

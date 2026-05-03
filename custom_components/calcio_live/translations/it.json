@@ -3,39 +3,64 @@
         "step": {
             "user": {
                 "title": "Configurazione Calcio Live",
-                "description": "Benvenuto nella configurazione di Calcio Live.\n\nSeleziona una delle seguenti opzioni per creare un sensore:\n\n- **Campionato**: Per monitorare tutte le partite di un campionato.\n- **Squadra**: Per monitorare le partite di una squadra specifica.\n- **Inserimento Manuale**: Se conosci l'ID di una squadra e vuoi configurarlo manualmente.",
+                "description": "Benvenuto nella configurazione di Calcio Live.\n\nScegli cosa vuoi monitorare:\n\n- **Campionato**: tutte le partite di un campionato (per le coppe viene creato anche il sensore tabellone KO).\n- **Squadra**: partite di una squadra specifica.\n- **Tutte le partite del giorno**: tutte le partite nel mondo giocate oggi.\n- **Notizie**: feed news di una competizione.\n- **Inserimento Manuale**: inserisci l'ID della squadra manualmente.",
                 "data": {
-                    "selection": "Seleziona e clicca invia"
+                    "selection": "Cosa vuoi monitorare?"
+                }
+            },
+            "news_competition": {
+                "title": "Notizie · scelta competizione",
+                "description": "Seleziona la competizione da cui ricevere le notizie.",
+                "data": {
+                    "competition_code": "Competizione"
                 }
             },
             "campionato": {
-                "title": "Seleziona Campionato",
-                "description": "Scegli il campionato che desideri monitorare.\n\nVerranno mostrate le partite di tutte le squadre appartenenti al campionato selezionato.",
+                "title": "Seleziona il campionato",
+                "description": "Scegli il campionato che desideri monitorare.\n\nVerranno mostrate le partite di tutte le squadre del campionato selezionato. Per le coppe (Champions League, Europa League, Coppa Italia, ecc.) viene creato anche un sensore tabellone della fase a eliminazione diretta.",
                 "data": {
-                    "competition_code": "Codice del campionato"
+                    "competition_code": "Competizione"
+                }
+            },
+            "select_competition_for_team": {
+                "title": "Squadra · scelta campionato",
+                "description": "Seleziona il campionato in cui gioca la squadra che vuoi seguire.\n\nNel passo successivo sceglierai la squadra dall'elenco.",
+                "data": {
+                    "competition_code": "Competizione"
                 }
             },
             "team": {
-                "title": "Seleziona Squadra",
+                "title": "Seleziona la squadra",
                 "description": "Scegli la squadra che desideri seguire.\n\nVerranno mostrate solo le partite della squadra selezionata.",
                 "data": {
-                    "team_id": "ID della squadra"
+                    "team_id": "Squadra"
                 }
             },
             "manual_team": {
-                "title": "Inserimento Manuale",
+                "title": "Inserimento manuale",
                 "description": "Inserisci manualmente l'ID della squadra che desideri seguire.\n\nPuoi anche fornire un nome personalizzato per identificarla facilmente.",
                 "data": {
-                    "manual_team_id": "ID manuale della squadra",
-                    "name": "Nome personalizzato della squadra (opzionale)"
+                    "manual_team_id": "ID squadra",
+                    "name": "Nome personalizzato (opzionale)"
                 }
             },
             "dates": {
-                "title": "Configura Date",
-                "description": "Specifica il periodo di monitoraggio per le partite.\n\n- **Data di inizio**: Da quando iniziare a monitorare.\n- **Data di fine**: Fino a quando monitorare.\n\nEntrambe le date devono essere nel formato **YYYY-MM-DD**.",
+                "title": "Periodo di monitoraggio",
+                "description": "Specifica l'intervallo di date da monitorare.\n\n- **Data di inizio**: da quando monitorare.\n- **Data di fine**: fino a quando monitorare.\n\nFormato: **YYYY-MM-DD**.",
                 "data": {
                     "start_date": "Data di inizio (YYYY-MM-DD)",
                     "end_date": "Data di fine (YYYY-MM-DD)"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Opzioni Calcio Live",
+                "description": "Configura il comportamento di polling.",
+                "data": {
+                    "scan_interval": "Intervallo di aggiornamento (minuti)"
                 }
             }
         }
