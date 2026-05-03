@@ -2,6 +2,7 @@ import asyncio
 import aiohttp
 from datetime import datetime, timedelta, timezone
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.storage import Store
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -121,11 +122,29 @@ class CalcioLiveSensor(Entity):
         
         # Traccia le partite per cui è stato dispatchato l'evento di fine
         self._match_finished_dispatched = set()
+        self._store = None
 
         self.base_url = "https://site.web.api.espn.com/apis/v2/sports/soccer"
         self.base_url_2 = "https://site.api.espn.com/apis/site/v2/sports/soccer"
         self.base_url_3 = "https://site.web.api.espn.com/apis/site/v2/sports/soccer"
-        
+
+    async def async_added_to_hass(self):
+        """Carica i match_finished già dispatchati dal disco, così al riavvio di HA
+        non vengono rilanciati eventi per partite già terminate in precedenza."""
+        store_key = f"calcio_live_{self._name}_finished"
+        self._store = Store(self.hass, 1, store_key)
+        stored = await self._store.async_load()
+        if stored and "dispatched" in stored:
+            self._match_finished_dispatched = set(stored["dispatched"])
+            _LOGGER.debug(
+                f"Caricati {len(self._match_finished_dispatched)} match_finished da storage per {self._name}"
+            )
+
+    async def _save_match_finished_store(self):
+        """Salva il set dei match_finished nel file .storage di HA."""
+        if self._store:
+            await self._store.async_save({"dispatched": list(self._match_finished_dispatched)})
+
     @property
     def name(self):
         return self._name
@@ -170,11 +189,12 @@ class CalcioLiveSensor(Entity):
         if url is None:
             return
 
+        _ESPN_HEADERS = {"Accept-Language": "en"}
         retries = 0
         while retries < 3:
             try:
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                    async with session.get(url) as response:
+                    async with session.get(url, headers=_ESPN_HEADERS) as response:
                         if response.status == 200:
                             data = await response.json()
                             _LOGGER.debug(f"Data received for {self._name}: {data}")
@@ -237,7 +257,7 @@ class CalcioLiveSensor(Entity):
         calendar_url = f"{self.base_url_2}/{self._code}/scoreboard"
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(calendar_url) as response:
+                async with session.get(calendar_url, headers={"Accept-Language": "en"}) as response:
                     response.raise_for_status()
                     data = await response.json()
                     # Estrai le date di inizio e fine dal calendario
@@ -447,6 +467,7 @@ class CalcioLiveSensor(Entity):
             if match_id not in self._match_finished_dispatched:
                 self._dispatch_match_finished_event(match)
                 self._match_finished_dispatched.add(match_id)
+                self.hass.async_create_task(self._save_match_finished_store())
                 _LOGGER.info(f"Evento fine partita dispatchato per: {match_id}")
 
     def _dispatch_match_finished_event(self, match):
@@ -562,14 +583,13 @@ class CalcioLiveSensor(Entity):
 
     def _compute_all_matches_attributes(self, matches):
         """Computa attributi per tutte le partite"""
-        # Rileva i goal appena le partite sono caricate
-        self._detect_and_dispatch_goals(matches)
-        
-        # Rileva i cartellini
-        self._detect_and_dispatch_cards(matches)
-        
-        # Rileva le partite finite
-        self._detect_and_dispatch_match_finished(matches)
+        # Dispatch eventi solo per i sensori principali.
+        # team_matches_mixed coprirebbe le stesse partite già gestite da team_matches,
+        # causando eventi duplicati per ogni cartellino/goal/fine partita.
+        if self._sensor_type != "team_matches_mixed":
+            self._detect_and_dispatch_goals(matches)
+            self._detect_and_dispatch_cards(matches)
+            self._detect_and_dispatch_match_finished(matches)
         
         computed = {}
         
