@@ -51,6 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         
         
         base_scan_interval = timedelta(minutes=entry.options.get("scan_interval", 3))
+        recent_match_hours = entry.options.get("recent_match_hours", 48)
         sensors = []
 
         if DOMAIN not in hass.data:
@@ -65,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     hass, f"calciolive_news_{comp_norm}", competition_code, "news",
                     base_scan_interval + timedelta(minutes=10) + timedelta(seconds=random.randint(0, 30)),
                     config_entry_id=entry.entry_id,
-                    start_date=start_date, end_date=end_date, team_id=team_id
+                    start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
                 )
             ]
             async_add_entities(sensors, True)
@@ -79,17 +80,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 CalcioLiveSensor(
                     hass, f"calciolive_next_{competition_name}_{team_name_normalized}", competition_code, "team_match",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
-                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
+                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
                 ),
                 CalcioLiveSensor(
                     hass, f"calciolive_all_{competition_name}_{team_name_normalized}", competition_code, "team_matches",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
-                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
+                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
                 ),
                 CalcioLiveSensor(
                     hass, f"calciolive_all_mixed_{team_name_normalized}", competition_code, "team_matches_mixed",
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
-                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id
+                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
                 )
             ]
         elif competition_code:
@@ -137,7 +138,8 @@ class CalcioLiveSensor(Entity):
     _cache = {}
 
     def __init__(self, hass, name, code, sensor_type=None, scan_interval=timedelta(minutes=5),
-                 team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None):
+                 team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None,
+                 recent_match_hours=48):
         self.hass = hass
         self._name = name
         self._code = code
@@ -151,6 +153,8 @@ class CalcioLiveSensor(Entity):
         # Usa le date fornite dal config_entry
         self._start_date = start_date  # (start_date o valore di default)
         self._end_date = end_date      # (end_date o valore di default)
+        # Finestra in ore per mostrare la partita appena terminata prima di passare alla successiva
+        self._recent_match_hours = recent_match_hours
         
         # Conversione delle date in oggetti datetime
         self._start_date = datetime.strptime(self._start_date, "%Y-%m-%d")
@@ -789,7 +793,8 @@ class CalcioLiveSensor(Entity):
                     team_name=self._team_name,
                     next_match_only=next_match_only,
                     start_date=self._start_date.strftime("%Y-%m-%d"),
-                    end_date=self._end_date.strftime("%Y-%m-%d")
+                    end_date=self._end_date.strftime("%Y-%m-%d"),
+                    recent_match_hours=self._recent_match_hours,
                 )
             
             

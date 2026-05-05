@@ -58,9 +58,12 @@
         "step": {
             "init": {
                 "title": "Options Calcio Live",
-                "description": "Configurer le comportement de polling.",
+                "description": "Configurez le polling et la durée d'affichage du dernier match terminé sur la Team card avant de passer au prochain.",
                 "data": {
-                    "scan_interval": "Intervalle de mise à jour (minutes)"
+                    "scan_interval": "Intervalle de mise à jour (minutes)",
+                    "start_date": "Date de début (AAAA-MM-JJ)",
+                    "end_date": "Date de fin (AAAA-MM-JJ)",
+                    "recent_match_hours": "Garder le match terminé visible (heures)"
                 }
             }
         }

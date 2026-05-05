@@ -58,9 +58,12 @@
         "step": {
             "init": {
                 "title": "Opciones Calcio Live",
-                "description": "Configura el comportamiento de actualización.",
+                "description": "Configura el polling y cuánto tiempo mantener visible el último partido finalizado en la Team card antes de pasar al próximo.",
                 "data": {
-                    "scan_interval": "Intervalo de actualización (minutos)"
+                    "scan_interval": "Intervalo de actualización (minutos)",
+                    "start_date": "Fecha de inicio (AAAA-MM-DD)",
+                    "end_date": "Fecha de fin (AAAA-MM-DD)",
+                    "recent_match_hours": "Mantener partido finalizado visible (horas)"
                 }
             }
         }

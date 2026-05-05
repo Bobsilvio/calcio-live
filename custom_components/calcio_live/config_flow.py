@@ -334,13 +334,14 @@ class CalcioLiveOptionsFlow(config_entries.OptionsFlow):
         end_date = self._config_entry.options.get(
             "end_date", self._config_entry.data.get("end_date", (today + relativedelta(months=4)).strftime("%Y-%m-%d"))
         )
-        
+        recent_match_hours = self._config_entry.options.get("recent_match_hours", 48)
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional("start_date", default=start_date): str,
                 vol.Optional("end_date", default=end_date): str,
+                vol.Optional("recent_match_hours", default=recent_match_hours): vol.In([6, 12, 24, 48]),
                 vol.Optional("info", default="⚠ Dopo la modifica, riavvia Home Assistant.", description=""): str,
             }),
         )

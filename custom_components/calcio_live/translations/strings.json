@@ -58,9 +58,12 @@
         "step": {
             "init": {
                 "title": "Calcio Live options",
-                "description": "Tune the polling behavior.",
+                "description": "Tune the polling behavior and how long to keep the last finished match visible on the team card before switching to the next upcoming match.",
                 "data": {
-                    "scan_interval": "Scan interval (minutes)"
+                    "scan_interval": "Scan interval (minutes)",
+                    "start_date": "Start date (YYYY-MM-DD)",
+                    "end_date": "End date (YYYY-MM-DD)",
+                    "recent_match_hours": "Keep finished match visible for (hours)"
                 }
             }
         }

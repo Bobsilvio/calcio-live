@@ -41,7 +41,7 @@ def get_season_slug_or_displayname(match):
     display_name = season_data.get("displayName")
     return display_name
     
-def process_match_data(data, hass, team_name=None, next_match_only=False, start_date=None, end_date=None):
+def process_match_data(data, hass, team_name=None, next_match_only=False, start_date=None, end_date=None, recent_match_hours=48):
     try:
         matches_data = data.get("events", [])
         league_info = process_league_data(data, hass)
@@ -179,9 +179,9 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
                     "matches": [live_matches[0]]
                 }
 
-            # Priorità 2: Partite terminate entro 48 ore
+            # Priorità 2: Partite terminate entro la finestra configurata (default 48h)
             recent_finished_matches = [m for m in matches
-                if m["state"] == "post" and is_within_last_48_hours(m["date"])
+                if m["state"] == "post" and is_within_recent_window(m["date"], recent_match_hours)
             ]
             
             if recent_finished_matches:
@@ -213,24 +213,24 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
         _LOGGER.error(f"Errore nel processare i dati delle partite: {e}")
         return {}
 
-def is_within_last_48_hours(end_time):
+def is_within_recent_window(end_time, hours=48):
+    """Ritorna True se la partita (kickoff) è avvenuta entro le ultime `hours`."""
     try:
-        # Converte la stringa formattata in oggetto datetime
         if isinstance(end_time, str):
             end_time_dt = datetime.strptime(end_time, "%d/%m/%Y %H:%M").replace(tzinfo=timezone.utc)
         elif isinstance(end_time, datetime):
             end_time_dt = end_time
         else:
             raise ValueError("La data fornita non è né una stringa né un oggetto datetime")
-        
-        # Ottiene l'orario attuale con timezone UTC
         current_time = datetime.now(timezone.utc)
-        
-        # Confronta l'intervallo di 48 ore
-        return current_time - end_time_dt <= timedelta(hours=48)
+        return current_time - end_time_dt <= timedelta(hours=hours)
     except Exception as e:
-        _LOGGER.error(f"Errore nel calcolo dell'intervallo di 48 ore: {e}")
+        _LOGGER.error(f"Errore nel calcolo dell'intervallo recente ({hours}h): {e}")
         return False
+
+# Backwards-compat alias
+def is_within_last_48_hours(end_time):
+    return is_within_recent_window(end_time, 48)
 
 def _get_statistics(competitor):
     statistics = {}

@@ -58,9 +58,12 @@
         "step": {
             "init": {
                 "title": "Calcio Live Optionen",
-                "description": "Polling-Verhalten konfigurieren.",
+                "description": "Polling und Dauer, wie lange das letzte beendete Spiel auf der Team-Karte sichtbar bleibt, bevor zum nächsten Spiel gewechselt wird.",
                 "data": {
-                    "scan_interval": "Aktualisierungsintervall (Minuten)"
+                    "scan_interval": "Aktualisierungsintervall (Minuten)",
+                    "start_date": "Startdatum (JJJJ-MM-TT)",
+                    "end_date": "Enddatum (JJJJ-MM-TT)",
+                    "recent_match_hours": "Beendetes Spiel sichtbar halten (Stunden)"
                 }
             }
         }
