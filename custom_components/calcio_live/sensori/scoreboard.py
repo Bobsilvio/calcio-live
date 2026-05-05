@@ -41,7 +41,7 @@ def get_season_slug_or_displayname(match):
     display_name = season_data.get("displayName")
     return display_name
     
-def process_match_data(data, hass, team_name=None, next_match_only=False, start_date=None, end_date=None, recent_match_hours=48):
+def process_match_data(data, hass, team_name=None, next_match_only=False, start_date=None, end_date=None, recent_match_hours=24):
     try:
         matches_data = data.get("events", [])
         league_info = process_league_data(data, hass)
@@ -213,7 +213,7 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
         _LOGGER.error(f"Errore nel processare i dati delle partite: {e}")
         return {}
 
-def is_within_recent_window(end_time, hours=48):
+def is_within_recent_window(end_time, hours=24):
     """Ritorna True se la partita (kickoff) è avvenuta entro le ultime `hours`."""
     try:
         if isinstance(end_time, str):

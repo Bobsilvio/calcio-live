@@ -334,7 +334,7 @@ class CalcioLiveOptionsFlow(config_entries.OptionsFlow):
         end_date = self._config_entry.options.get(
             "end_date", self._config_entry.data.get("end_date", (today + relativedelta(months=4)).strftime("%Y-%m-%d"))
         )
-        recent_match_hours = self._config_entry.options.get("recent_match_hours", 48)
+        recent_match_hours = self._config_entry.options.get("recent_match_hours", 24)
 
         return self.async_show_form(
             step_id="init",

@@ -51,7 +51,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         
         
         base_scan_interval = timedelta(minutes=entry.options.get("scan_interval", 3))
-        recent_match_hours = entry.options.get("recent_match_hours", 48)
+        recent_match_hours = entry.options.get("recent_match_hours", 24)
         sensors = []
 
         if DOMAIN not in hass.data:
@@ -139,7 +139,7 @@ class CalcioLiveSensor(Entity):
 
     def __init__(self, hass, name, code, sensor_type=None, scan_interval=timedelta(minutes=5),
                  team_name=None, config_entry_id=None, start_date=None, end_date=None, team_id=None,
-                 recent_match_hours=48):
+                 recent_match_hours=24):
         self.hass = hass
         self._name = name
         self._code = code
