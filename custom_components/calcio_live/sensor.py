@@ -1,4 +1,5 @@
 import asyncio
+import json
 import aiohttp
 from datetime import datetime, timedelta, timezone
 from homeassistant.helpers.entity import Entity
@@ -229,7 +230,10 @@ class CalcioLiveSensor(Entity):
 
         cache_key = f"{self._sensor_type}_{self._code}_{self._team_name}"
         if cache_key in CalcioLiveSensor._cache and (datetime.now() - CalcioLiveSensor._cache[cache_key]["time"]).seconds < 60:
-            self._process_data(CalcioLiveSensor._cache[cache_key]["data"])
+            # Offload heavy sync processing to executor to avoid blocking event loop
+            await self.hass.async_add_executor_job(
+                self._process_data, CalcioLiveSensor._cache[cache_key]["data"]
+            )
             _LOGGER.info(f"Using cached data for {self._name}")
             return
 
@@ -245,10 +249,14 @@ class CalcioLiveSensor(Entity):
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                     async with session.get(url, headers=_ESPN_HEADERS) as response:
                         if response.status == 200:
-                            data = await response.json()
-                            _LOGGER.debug(f"Data received for {self._name}: {data}")
+                            # Parse JSON in executor — large payloads (e.g. team_matches_mixed,
+                            # bracket scoreboards) can block the event loop for seconds otherwise
+                            raw = await response.read()
+                            data = await self.hass.async_add_executor_job(json.loads, raw)
+                            _LOGGER.debug(f"Data received for {self._name}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
-                            self._process_data(data)
+                            # Offload heavy sync processing to executor as well
+                            await self.hass.async_add_executor_job(self._process_data, data)
                             await self._enrich_with_summary()
                             _LOGGER.info(f"Finished update for {self._name}")
                             break
@@ -278,7 +286,8 @@ class CalcioLiveSensor(Entity):
         if not summary:
             return
         from .sensori.scoreboard import process_summary_data
-        summary_data = process_summary_data(summary)
+        # Sync processing offloaded to executor to keep event loop free
+        summary_data = await self.hass.async_add_executor_job(process_summary_data, summary)
         # Inietta nel match e a livello top per accesso comodo dalle card
         first.update(summary_data)
         self._attributes.update(summary_data)
@@ -345,7 +354,8 @@ class CalcioLiveSensor(Entity):
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                 async with session.get(url, headers={"Accept-Language": "en"}) as response:
                     if response.status == 200:
-                        return await response.json()
+                        raw = await response.read()
+                        return await self.hass.async_add_executor_job(json.loads, raw)
         except Exception as e:
             _LOGGER.debug(f"Errore nel recupero summary per {event_id}: {e}")
         return None
@@ -363,7 +373,8 @@ class CalcioLiveSensor(Entity):
             async with aiohttp.ClientSession() as session:
                 async with session.get(calendar_url, headers={"Accept-Language": "en"}) as response:
                     response.raise_for_status()
-                    data = await response.json()
+                    raw = await response.read()
+                    data = await self.hass.async_add_executor_job(json.loads, raw)
                     # Estrai le date di inizio e fine dal calendario
                     calendar_start_date = data.get("calendarStartDate", "2025-08-01T04:00Z")
                     calendar_end_date = data.get("calendarEndDate", "2026-07-01T03:59Z")
