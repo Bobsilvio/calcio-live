@@ -47,8 +47,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         start_date_1 = entry.data.get("start_date")
         end_date_1 = entry.data.get("end_date")
         
-        start_date = entry.data.get("start_date", datetime.now().strftime("%Y-%m-%d"))
-        end_date = entry.data.get("end_date", (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d"))
+        # Le date stagionali non sono più richieste in config_flow: vengono
+        # risolte dinamicamente dal sensor via _get_calendar_data ad ogni
+        # update. Qui usiamo solo un fallback rolling molto largo (1 anno
+        # indietro / 1 anno avanti) per evitare che il filtro di
+        # process_match_data scarti partite valide in caso di prima
+        # esecuzione senza calendar disponibile.
+        _today = datetime.now()
+        start_date = entry.data.get("start_date", (_today - timedelta(days=365)).strftime("%Y-%m-%d"))
+        end_date = entry.data.get("end_date", (_today + timedelta(days=365)).strftime("%Y-%m-%d"))
         
         
         base_scan_interval = timedelta(minutes=entry.options.get("scan_interval", 3))
@@ -160,6 +167,14 @@ class CalcioLiveSensor(Entity):
         # Conversione delle date in oggetti datetime
         self._start_date = datetime.strptime(self._start_date, "%Y-%m-%d")
         self._end_date = datetime.strptime(self._end_date, "%Y-%m-%d")
+
+        # Date stagione risolte dinamicamente da ESPN ad ogni update.
+        # Quando disponibili sostituiscono i fallback statici sia nella
+        # costruzione dell'URL sia nel filtro di process_match_data, così
+        # l'integrazione segue automaticamente la stagione corrente senza
+        # richiedere edit manuali ad ogni nuova stagione.
+        self._dyn_start_date = None
+        self._dyn_end_date = None
         
         self._request_count = 0
         self._last_request_time = None
@@ -209,8 +224,8 @@ class CalcioLiveSensor(Entity):
             **self._attributes,
             "request_count": self._request_count,
             "last_request_time": self._last_request_time,
-            "start_date": self._start_date.strftime("%Y-%m-%d"),
-            "end_date": self._end_date.strftime("%Y-%m-%d"),
+            "start_date": self._filter_start_str(),
+            "end_date": self._filter_end_str(),
         }
 
     @property
@@ -270,6 +285,14 @@ class CalcioLiveSensor(Entity):
                 await asyncio.sleep(5)
                 retries += 1
 
+    def _filter_start_str(self):
+        d = self._dyn_start_date or self._start_date
+        return d.strftime("%Y-%m-%d")
+
+    def _filter_end_str(self):
+        d = self._dyn_end_date or self._end_date
+        return d.strftime("%Y-%m-%d")
+
     async def _enrich_with_summary(self):
         """Per il sensor team_match, aggiunge lineup/formazione/keyEvents/h2h
         chiamando l'endpoint summary?event=ID per la partita corrente."""
@@ -320,11 +343,21 @@ class CalcioLiveSensor(Entity):
         if self._code:
             season_start, season_end = await self._get_calendar_data()
 
+        # Memorizza le date dinamiche per uso in _process_data: il filtro
+        # delle partite usa queste date così segue automaticamente la stagione
+        # corrente senza richiedere update manuali al cambio anno.
+        if season_start and season_end:
+            try:
+                self._dyn_start_date = datetime.strptime(season_start[:10], "%Y-%m-%d")
+                self._dyn_end_date = datetime.strptime(season_end[:10], "%Y-%m-%d")
+            except (ValueError, TypeError):
+                pass
+
         # Se le date non sono state recuperate, utilizza quelle di default
         if not season_start or not season_end:
             season_start = self._start_date.strftime("%Y-%m-%d")
             season_end = self._end_date.strftime("%Y-%m-%d")
-    
+
         season_start = season_start[:10].replace("-", "")
         season_end = season_end[:10].replace("-", "")
 
@@ -789,7 +822,7 @@ class CalcioLiveSensor(Entity):
             self._attributes = processed_data
 
         elif self._sensor_type == "match_day":
-            match_data = process_match_data(data, self.hass, start_date=self._start_date.strftime("%Y-%m-%d"), end_date=self._end_date.strftime("%Y-%m-%d"))
+            match_data = process_match_data(data, self.hass, start_date=self._filter_start_str(), end_date=self._filter_end_str())
             self._state = "Matches of the Week"
             self._attributes = {
                 "league_info": match_data.get("league_info", "N/A"),
@@ -803,8 +836,8 @@ class CalcioLiveSensor(Entity):
                     self.hass,
                     team_name=self._team_name,
                     next_match_only=next_match_only,
-                    start_date=self._start_date.strftime("%Y-%m-%d"),
-                    end_date=self._end_date.strftime("%Y-%m-%d"),
+                    start_date=self._filter_start_str(),
+                    end_date=self._filter_end_str(),
                     recent_match_hours=self._recent_match_hours,
                 )
             

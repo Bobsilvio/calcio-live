@@ -106,7 +106,12 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             competition_name = await self._get_competition_name(competition_code)
             self._data.update({"competition_code": competition_code, "name": competition_name})
 
-            return await self.async_step_dates()
+            # Calendar dates are now resolved dynamically by the sensor on each
+            # update via _get_calendar_data, so the user is no longer prompted.
+            return self.async_create_entry(
+                title=self._data.get("name", "Calcio Live"),
+                data=self._data,
+            )
 
         competitions = await self._get_competitions()
         sorted_competitions = {k: v for k, v in sorted(competitions.items(), key=lambda item: item[1])}
@@ -163,7 +168,11 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Aggiorna self._data con il team_id
             self._data.update({"team_name": team_name, "team_id": team_id, "name": f"Team {competition_name} {team_name}"})
 
-            return await self.async_step_dates()
+            # Date stagione gestite dinamicamente dal sensor: niente prompt.
+            return self.async_create_entry(
+                title=self._data.get("name", "Calcio Live"),
+                data=self._data,
+            )
 
         team_options = {team['displayName']: team['displayName'] for team in sorted(self._teams, key=lambda t: t['displayName'])}
 
@@ -191,7 +200,11 @@ class CalcioLiveConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             self._data.update({"team_id": team_id, "name": f"Team {competition_name} {team_id} {nome_squadra_normalizzato}"})
 
-            return await self.async_step_dates()
+            # Date stagione gestite dinamicamente dal sensor: niente prompt.
+            return self.async_create_entry(
+                title=self._data.get("name", "Calcio Live"),
+                data=self._data,
+            )
 
         return self.async_show_form(
             step_id="manual_team",
