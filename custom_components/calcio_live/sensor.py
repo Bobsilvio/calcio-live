@@ -409,9 +409,27 @@ class CalcioLiveSensor(Entity):
                     response.raise_for_status()
                     raw = await response.read()
                     data = await self.hass.async_add_executor_job(json.loads, raw)
-                    # Estrai le date di inizio e fine dal calendario
-                    calendar_start_date = data.get("calendarStartDate", "2025-08-01T04:00Z")
-                    calendar_end_date = data.get("calendarEndDate", "2026-07-01T03:59Z")
+                    # Estrai le date di inizio e fine dal calendario.
+                    # ESPN NON espone più calendarStartDate/EndDate a livello top:
+                    # le date stagione vivono in leagues[0]. Leggiamo prima da lì,
+                    # poi dal top-level per retro-compatibilità.
+                    leagues = data.get("leagues") or []
+                    league0 = leagues[0] if leagues else {}
+                    calendar_start_date = (
+                        data.get("calendarStartDate")
+                        or league0.get("calendarStartDate")
+                    )
+                    calendar_end_date = (
+                        data.get("calendarEndDate")
+                        or league0.get("calendarEndDate")
+                    )
+                    # Fallback rolling (±240 giorni) se ESPN non fornisce le date:
+                    # evita finestre hardcoded scadute che tagliano la stagione (es.
+                    # MLS che corre fino a novembre) facendo sparire le partite future.
+                    if not calendar_start_date or not calendar_end_date:
+                        now = datetime.now()
+                        calendar_start_date = (now - timedelta(days=240)).strftime("%Y-%m-%dT00:00Z")
+                        calendar_end_date = (now + timedelta(days=240)).strftime("%Y-%m-%dT00:00Z")
                     return calendar_start_date, calendar_end_date
         except Exception as e:
             _LOGGER.error(f"Errore nel recupero del calendario: {e}")
