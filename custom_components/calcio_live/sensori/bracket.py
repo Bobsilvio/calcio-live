@@ -113,20 +113,17 @@ def process_bracket_data(data):
                 }
             tie = ties[tie_key]
 
+            # Solo i campi consumati dalla Bracket card: per ogni leg la card legge
+            # home_team/away_team/home_score/away_score/state (i loghi/abbrev li prende
+            # da team_a/team_b, non dal leg). Loghi/abbrev/status/venue/event_id per leg
+            # sono ESPN raw inutilizzati → omessi per restare sotto i 16384 byte del recorder.
             leg_payload = {
                 "home_team": home_team,
-                "home_logo": home_logo,
-                "home_abbrev": home_abbrev,
                 "home_score": _safe_int(home.get("score")),
                 "away_team": away_team,
-                "away_logo": away_logo,
-                "away_abbrev": away_abbrev,
                 "away_score": _safe_int(away.get("score")),
                 "date": e.get("date", ""),
                 "state": ((e.get("status") or {}).get("type") or {}).get("state", ""),
-                "status": ((e.get("status") or {}).get("type") or {}).get("description", ""),
-                "venue": (c.get("venue") or {}).get("fullName", ""),
-                "event_id": e.get("id", ""),
             }
 
             if is_first_leg:
@@ -250,6 +247,11 @@ def process_bracket_data(data):
 
         for idx, sr in enumerate(sized_rounds):
             name_en, name_it = labels[idx]
+            # team_a/team_b portano un 'id' usato solo internamente per il raggruppamento
+            # dei tie: la card non lo legge, lo rimuoviamo dall'output.
+            for tie in sr["ties"]:
+                tie.get("team_a", {}).pop("id", None)
+                tie.get("team_b", {}).pop("id", None)
             out["rounds"].append({
                 "name": name_en,
                 "name_it": name_it,

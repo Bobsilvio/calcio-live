@@ -294,7 +294,6 @@ def process_summary_data(data):
             for p in roster:
                 a = p.get("athlete", {}) or {}
                 players.append({
-                    "id": a.get("id", ""),
                     "name": a.get("displayName", ""),
                     "short_name": a.get("shortName", ""),
                     "jersey": p.get("jersey", ""),
@@ -322,7 +321,6 @@ def process_summary_data(data):
             out["key_events"].append({
                 "type": t.get("type", ""),
                 "type_text": t.get("text", ""),
-                "text": ev.get("text", ""),
                 "short_text": ev.get("shortText", ""),
                 "clock": clock,
                 "team": team,
@@ -330,10 +328,18 @@ def process_summary_data(data):
                 "scoring_play": ev.get("scoringPlay", False),
             })
 
+        # La card Team mostra al massimo 8 partite h2h e non usa i loghi:
+        # limitiamo a 10 voci e omettiamo home_logo/away_logo per restare
+        # ampiamente sotto il limite di 16384 byte del recorder.
+        H2H_MAX = 10
         h2h = data.get("headToHeadGames", []) or []
         for game in h2h:
+            if len(out["head_to_head"]) >= H2H_MAX:
+                break
             events = game.get("events", []) or []
-            for e in events[:10]:
+            for e in events:
+                if len(out["head_to_head"]) >= H2H_MAX:
+                    break
                 comp = (e.get("competitions", []) or [{}])[0]
                 competitors = comp.get("competitors", []) or []
                 if len(competitors) < 2:
@@ -343,10 +349,8 @@ def process_summary_data(data):
                 out["head_to_head"].append({
                     "date": e.get("date", ""),
                     "home_team": (home_c.get("team", {}) or {}).get("displayName", ""),
-                    "home_logo": (home_c.get("team", {}) or {}).get("logo", ""),
                     "home_score": home_c.get("score", ""),
                     "away_team": (away_c.get("team", {}) or {}).get("displayName", ""),
-                    "away_logo": (away_c.get("team", {}) or {}).get("logo", ""),
                     "away_score": away_c.get("score", ""),
                 })
     except Exception as e:

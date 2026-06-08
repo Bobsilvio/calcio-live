@@ -311,9 +311,10 @@ class CalcioLiveSensor(Entity):
         from .sensori.scoreboard import process_summary_data
         # Sync processing offloaded to executor to keep event loop free
         summary_data = await self.hass.async_add_executor_job(process_summary_data, summary)
-        # Inietta nel match e a livello top per accesso comodo dalle card
+        # Inietta SOLO dentro matches[0]: le card (Lineup/Timeline/Team) leggono
+        # lineup/key_events/h2h da matches[0]. Niente copia a livello top per non
+        # raddoppiare il payload e sforare il limite di 16384 byte del recorder.
         first.update(summary_data)
-        self._attributes.update(summary_data)
 
     
     async def _build_url(self):

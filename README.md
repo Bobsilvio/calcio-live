@@ -72,6 +72,18 @@ recorder:
       - sensor.calciolive_*
   ```
 
+> ℹ️ I payload degli attributi sono già ridotti ai soli campi usati dalle card
+> (bracket, lineup, timeline, h2h), ma sensori come `sensor.calciolive_bracket_*`
+> e `sensor.calciolive_next_*` possono comunque avvicinarsi al limite di 16384 byte
+> del recorder. Escluderli con lo snippet qui sopra elimina i warning
+> *"State attributes ... exceed maximum size of 16384 bytes"* e alleggerisce il DB.
+
+> ℹ️ The attribute payloads are already trimmed to only the fields the cards use
+> (bracket, lineup, timeline, h2h), but sensors like `sensor.calciolive_bracket_*`
+> and `sensor.calciolive_next_*` can still approach the recorder's 16384-byte limit.
+> Excluding them with the snippet above removes the
+> *"State attributes ... exceed maximum size of 16384 bytes"* warnings and lightens the DB.
+
 ## Note
     Puoi seguire più campionati o più squadre.\
     You can follow multiple leagues or multiple teams.
