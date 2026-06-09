@@ -280,12 +280,19 @@ action:
     data:
       title: ⚽ GOAL INTERNAZIONALE!
       message: >
-        {{ trigger.event.data.team }} segna il {{ trigger.event.data.goals_scored }}° goal!
-        Score: {{ trigger.event.data.home_score }} - {{ trigger.event.data.away_score }}
+        {% set m = trigger.event.data.minute %}
+        {{ trigger.event.data.player }}{{ " (" ~ m ~ "')" if m and m != 'N/A' else '' }} —
+        {{ trigger.event.data.home_team }} {{ trigger.event.data.home_score }}
+        - {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
       data:
         image: "{{ state_attr('sensor.calciolive_next_ita_1_internazionale', 'next_match_home_logo') }}"
 mode: queued
 ```
+
+> ℹ️ Dati disponibili in `trigger.event.data` per `calcio_live_goal`:
+> `team`, `opponent`, `goals_scored`, `player`, `minute`, `players` (lista),
+> `home_team`, `away_team`, `home_score`, `away_score`, `league_name`,
+> `competition_code`, `sensor_name`.
 
 **Per notificare QUALSIASI goal** (non solo della tua squadra):
 ```yaml
@@ -303,6 +310,20 @@ action:
         - {{ trigger.event.data.away_score }} {{ trigger.event.data.away_team }}
 mode: queued
 ```
+
+> ⚠️ **Sconsigliato — Metodo Classico (pre-v2.3) basato su `match_details`.**
+> Questi template iterano la lista `match_details` della partita. Al **riavvio di
+> Home Assistant** il trigger template viene rivalutato e l'azione `for_each`
+> invia di nuovo una notifica per **ogni** gol già presente nella lista → è la
+> causa tipica delle decine/centinaia di notifiche tutte insieme dopo il restart.
+> Inoltre, le varianti che leggono solo `match_details[-1]` (ultimo elemento)
+> **saltano dei gol** se nello stesso intervallo di polling arriva un altro
+> evento (es. un cartellino) dopo il gol.
+>
+> **Usa invece l'automazione basata sull'evento `calcio_live_goal`** (esempi
+> sopra): l'integrazione la emette **una sola volta per ogni nuovo gol**, con
+> de-duplica che sopravvive al riavvio, e include `player`, `minute`,
+> `home_score`/`away_score`. Niente burst al restart, nessun gol mancato.
 
 **Metodo Classico** (pre-v2.3):
 ```yaml

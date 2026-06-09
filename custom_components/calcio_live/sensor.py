@@ -520,9 +520,10 @@ class CalcioLiveSensor(Entity):
             self._previous_scores[match_id]["match_details"] = curr_details.copy()
 
     def _extract_goal_scorers_from_details(self, prev_details, curr_details, goals_count, is_home_team=True):
-        """Estrae i nomi dei giocatori dai goal nei match_details"""
+        """Estrae giocatore + minuto dai nuovi goal nei match_details.
+        Ritorna una lista di dict {player, minute}."""
         new_goals = []
-        
+
         for detail in curr_details:
             if detail not in prev_details and "Goal" in detail:
                 # Formato: "Goal - 38': Bryan Mbeumo"
@@ -530,24 +531,40 @@ class CalcioLiveSensor(Entity):
                     parts = detail.split("': ")
                     if len(parts) == 2:
                         player_name = parts[1].strip()
-                        new_goals.append(player_name)
+                        # Minuto: dalla parte prima di "': " -> "Goal - 38" -> "38"
+                        minute = parts[0].split(" - ")[-1].strip() if " - " in parts[0] else "N/A"
+                        new_goals.append({"player": player_name, "minute": minute})
                 except Exception as e:
                     _LOGGER.debug(f"Errore nell'estrazione nome giocatore: {e}")
-        
-        # Ritorna solo i nomi estratti, fino al numero di goal segnati
+
+        # Ritorna solo i goal estratti, fino al numero di goal segnati
         return new_goals[:goals_count]
 
     def _dispatch_goal_event(self, scoring_team, opponent_team, goals_count, home_score, away_score, match, goal_scorers=None):
         """Dispatcha un evento di goal a Home Assistant"""
         try:
-            # Usa il primo nome di giocatore se disponibile, altrimenti "N/A"
-            player_name = goal_scorers[0] if goal_scorers and len(goal_scorers) > 0 else "N/A"
-            
+            # goal_scorers è una lista di dict {player, minute}. Retro-compatibile
+            # anche se arrivano semplici stringhe.
+            first = goal_scorers[0] if goal_scorers and len(goal_scorers) > 0 else None
+            if isinstance(first, dict):
+                player_name = first.get("player", "N/A")
+                minute = first.get("minute", "N/A")
+            elif isinstance(first, str):
+                player_name = first
+                minute = "N/A"
+            else:
+                player_name = "N/A"
+                minute = "N/A"
+
+            players = [g.get("player") if isinstance(g, dict) else g for g in (goal_scorers or [])]
+
             event_data = {
                 "team": scoring_team,
                 "opponent": opponent_team,
                 "goals_scored": goals_count,
                 "player": player_name,
+                "minute": minute,
+                "players": players,
                 "home_team": match.get("home_team", "N/A"),
                 "away_team": match.get("away_team", "N/A"),
                 "home_score": home_score,
@@ -560,7 +577,7 @@ class CalcioLiveSensor(Entity):
                 "sensor_name": self._name,
             }
             self.hass.bus.fire("calcio_live_goal", event_data)
-            _LOGGER.info(f"Goal rilevato! {scoring_team} segna {goals_count} goal(s). Giocatore: {player_name}. Score: {home_score}-{away_score}")
+            _LOGGER.info(f"Goal rilevato! {scoring_team} segna {goals_count} goal(s). Giocatore: {player_name} ({minute}). Score: {home_score}-{away_score}")
         except Exception as e:
             _LOGGER.error(f"Errore nel dispatch dell'evento goal: {e}")
 
