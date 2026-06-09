@@ -87,7 +87,27 @@ recorder:
 ## Note
     Puoi seguire più campionati o più squadre.\
     You can follow multiple leagues or multiple teams.
-   
+
+## 🔢 Come trovare il Team ID / How to find the Team ID
+
+**IT** — Nella maggior parte dei casi **NON serve**: scegliendo campionato + squadra dal menu a tendina l'ID viene risolto in automatico. Ti serve solo se usi l'inserimento **manuale** (es. per il sensore *mixed* che segue una squadra in tutte le competizioni).
+
+Per trovarlo:
+1. **Dal sito ESPN** — apri la pagina della squadra su `espn.com`; l'ID è il numero nell'URL:
+   `espn.com/soccer/team/_/id/`**`9723`**`/portland-timbers` → Team ID = **9723**.
+2. **Dall'API ESPN** — apri questo link e cerca il nome squadra (campo `id`):
+   `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams`
+   (oppure per uno specifico campionato: `.../soccer/usa.1/teams`)
+
+**EN** — In most cases you **don't need it**: picking league + team from the dropdown resolves the ID automatically. You only need it for the **manual** entry (e.g. the *mixed* sensor that follows a team across all competitions).
+
+To find it:
+1. **From the ESPN website** — open the team page on `espn.com`; the ID is the number in the URL:
+   `espn.com/soccer/team/_/id/`**`9723`**`/portland-timbers` → Team ID = **9723**.
+2. **From the ESPN API** — open this link and search the team name (`id` field):
+   `https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams`
+   (or for a specific league: `.../soccer/usa.1/teams`)
+
 ## Automazioni
 
 ### ✨ NUOVE! Automazioni Semplificate (v2.3+)

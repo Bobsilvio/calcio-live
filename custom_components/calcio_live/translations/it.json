@@ -38,7 +38,7 @@
             },
             "manual_team": {
                 "title": "Inserimento manuale",
-                "description": "Inserisci manualmente l'ID della squadra che desideri seguire.\n\nPuoi anche fornire un nome personalizzato per identificarla facilmente.",
+                "description": "Inserisci manualmente l'ID della squadra che desideri seguire.\n\n**Come trovare il Team ID:** apri la pagina della squadra su espn.com — l'ID è il numero nell'URL: espn.com/soccer/team/_/id/**9723**/portland-timbers. In alternativa apri https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams e cerca il nome della squadra.\n\nPuoi anche fornire un nome personalizzato per identificarla facilmente.",
                 "data": {
                     "manual_team_id": "ID squadra",
                     "name": "Nome personalizzato (opzionale)"

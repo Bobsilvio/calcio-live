@@ -38,7 +38,7 @@
             },
             "manual_team": {
                 "title": "Manual team entry",
-                "description": "Enter the team ID manually.\n\nYou can also provide a custom display name to identify it easily.",
+                "description": "Enter the team ID manually.\n\n**How to find the Team ID:** open the team page on espn.com — the ID is the number in the URL: espn.com/soccer/team/_/id/**9723**/portland-timbers. Or open https://site.api.espn.com/apis/site/v2/sports/soccer/all/teams and search the team name.\n\nYou can also provide a custom display name to identify it easily.",
                 "data": {
                     "manual_team_id": "Team ID",
                     "name": "Custom name (optional)"
