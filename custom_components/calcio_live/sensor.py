@@ -40,13 +40,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         selection = entry.data.get("selection")
         team_id = entry.data.get("team_id")
         #{'competition_code': 'uefa.champions', 'end_date': '2025-07-26', 'name': 'Team UEFA Champions League Internazionale', 'selection': 'Team', 'start_date': '2024-11-27', 'team_name': 'Internazionale'}
-        
+
 #        _LOGGER.error(f"Entry data completo: {entry.data}")
 #        _LOGGER.error(f"Entry options completo: {entry.options}")
-                
+
         start_date_1 = entry.data.get("start_date")
         end_date_1 = entry.data.get("end_date")
-        
+
         # Le date stagionali non sono più richieste in config_flow: vengono
         # risolte dinamicamente dal sensor via _get_calendar_data ad ogni
         # update. Qui usiamo solo un fallback rolling molto largo (1 anno
@@ -56,17 +56,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _today = datetime.now()
         start_date = entry.data.get("start_date", (_today - timedelta(days=365)).strftime("%Y-%m-%d"))
         end_date = entry.data.get("end_date", (_today + timedelta(days=365)).strftime("%Y-%m-%d"))
-        
-        
+
+
         base_scan_interval = timedelta(minutes=entry.options.get("scan_interval", 3))
         recent_match_hours = entry.options.get("recent_match_hours", 24)
         sensors = []
 
         if DOMAIN not in hass.data:
             hass.data[DOMAIN] = {}
-        
+
         _LOGGER.debug(f"Calcio Live Config Entry: {entry.data}")  # Log per capire cosa c'è nell'entry
-    
+
         if selection == "News":
             comp_norm = competition_code.replace(" ", "_").replace(".", "_").lower()
             sensors += [
@@ -95,12 +95,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
                     config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
                 ),
-                CalcioLiveSensor(
-                    hass, f"calciolive_all_mixed_{team_name_normalized}", competition_code, "team_matches_mixed",
-                    base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
-                    config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
-                )
             ]
+
+            # Il sensore "mixed" aggrega TUTTE le partite della squadra a
+            # prescindere dalla competizione (usa solo team_id), quindi il
+            # suo unique_id (f"{name}_{sensor_type}") dipende solo dal nome
+            # squadra normalizzato, non dalla competition_code. Se la stessa
+            # squadra viene configurata su più competizioni (es. Napoli Serie
+            # A + Napoli Champions League), ogni config entry provava a
+            # creare un sensore identico -> "Platform calcio_live does not
+            # generate unique IDs" e uno dei due veniva scartato con un
+            # ERROR nei log, lasciando l'entità non disponibile. Lo creiamo
+            # una sola volta per squadra, tracciando i nomi già serviti in
+            # hass.data (condiviso tra tutte le config entry).
+            mixed_created = hass.data[DOMAIN].setdefault("mixed_sensors_created", set())
+            mixed_name = f"calciolive_all_mixed_{team_name_normalized}"
+            if mixed_name not in mixed_created:
+                mixed_created.add(mixed_name)
+                sensors.append(
+                    CalcioLiveSensor(
+                        hass, mixed_name, competition_code, "team_matches_mixed",
+                        base_scan_interval + timedelta(seconds=random.randint(0, 30)), team_name=team_name,
+                        config_entry_id=entry.entry_id, start_date=start_date, end_date=end_date, team_id=team_id, recent_match_hours=recent_match_hours
+                    )
+                )
         elif competition_code:
             if competition_code == "99999":  # Se il competition_code è fittizio, crea il sensore per tutte le partite
                 sensors += [
@@ -163,7 +181,7 @@ class CalcioLiveSensor(Entity):
         self._end_date = end_date      # (end_date o valore di default)
         # Finestra in ore per mostrare la partita appena terminata prima di passare alla successiva
         self._recent_match_hours = recent_match_hours
-        
+
         # Conversione delle date in oggetti datetime
         self._start_date = datetime.strptime(self._start_date, "%Y-%m-%d")
         self._end_date = datetime.strptime(self._end_date, "%Y-%m-%d")
@@ -175,16 +193,16 @@ class CalcioLiveSensor(Entity):
         # richiedere edit manuali ad ogni nuova stagione.
         self._dyn_start_date = None
         self._dyn_end_date = None
-        
+
         self._request_count = 0
         self._last_request_time = None
-        
+
         # Traccia i punteggi precedenti per rilevare i goal
         self._previous_scores = {}
-        
+
         # Traccia i cartellini precedenti per evitare duplicati
         self._previous_match_details = {}
-        
+
         # Traccia le partite per cui è stato dispatchato l'evento di fine
         self._match_finished_dispatched = set()
         self._store = None
@@ -276,14 +294,66 @@ class CalcioLiveSensor(Entity):
                             _LOGGER.info(f"Finished update for {self._name}")
                             break
                         else:
+                            # Prima questo ramo falliva in silenzio: dopo 3 tentativi falliti
+                            # il sensore restava bloccato su "unknown" per sempre senza una
+                            # sola riga di log a spiegare perché. Logghiamo lo status HTTP
+                            # e l'URL per rendere visibile il problema.
+                            _LOGGER.warning(
+                                f"Risposta non valida ({response.status}) per {self._name} "
+                                f"(tentativo {retries + 1}/3) - URL: {url}"
+                            )
                             await asyncio.sleep(5)
                             retries += 1
             except aiohttp.ClientError as error:
+                _LOGGER.warning(
+                    f"Errore di connessione per {self._name} (tentativo {retries + 1}/3): {error}"
+                )
                 await asyncio.sleep(5)
                 retries += 1
             except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    f"Timeout nella richiesta per {self._name} (tentativo {retries + 1}/3) - URL: {url}"
+                )
                 await asyncio.sleep(5)
                 retries += 1
+        else:
+            # Il while è arrivato a 3 tentativi senza mai fare "break" (nessuna risposta 200):
+            # lo stato del sensore resta quello precedente (o "unknown" se è il primo update).
+            # Prima non c'era nessuna traccia di questo fallimento nei log.
+            _LOGGER.error(
+                f"Aggiornamento fallito per {self._name} dopo 3 tentativi - URL: {url}"
+            )
+
+            # Fallback: per match_day/team_match/team_matches l'URL usa l'intero
+            # intervallo stagionale (season_start-season_end, es. 13 mesi per una
+            # stagione intera) con limit=1000. Per alcune competizioni (es. Serie A
+            # "ita.1") ESPN risponde 200 ma con corpo vuoto/non valido per questo
+            # range così ampio, anche se lo stesso endpoint funziona perfettamente
+            # SENZA il parametro "dates" (torna la giornata di campionato corrente).
+            # Ritentiamo quindi una volta senza range di date, così il sensore mostra
+            # almeno le partite della giornata corrente invece di restare bloccato
+            # su "unknown" a tempo indeterminato.
+            if self._sensor_type in ("match_day", "team_match", "team_matches") and self._code:
+                fallback_url = f"{self.base_url_3}/{self._code}/scoreboard"
+                _LOGGER.warning(
+                    f"Fallback senza range di date per {self._name} - URL: {fallback_url}"
+                )
+                try:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                        async with session.get(fallback_url, headers=_ESPN_HEADERS) as response:
+                            if response.status == 200:
+                                raw = await response.read()
+                                data = await self.hass.async_add_executor_job(json.loads, raw)
+                                CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
+                                await self.hass.async_add_executor_job(self._process_data, data)
+                                await self._enrich_with_summary()
+                                _LOGGER.info(f"Finished update for {self._name} (fallback senza range date)")
+                            else:
+                                _LOGGER.error(
+                                    f"Fallback fallito per {self._name}: status {response.status} - URL: {fallback_url}"
+                                )
+                except (aiohttp.ClientError, asyncio.TimeoutError) as fallback_error:
+                    _LOGGER.error(f"Fallback fallito per {self._name}: {fallback_error}")
 
     def _filter_start_str(self):
         d = self._dyn_start_date or self._start_date
@@ -316,7 +386,7 @@ class CalcioLiveSensor(Entity):
         # raddoppiare il payload e sforare il limite di 16384 byte del recorder.
         first.update(summary_data)
 
-    
+
     async def _build_url(self):
         base_url    = "https://site.web.api.espn.com/apis/v2/sports/soccer"
         base_url_2  = "https://site.api.espn.com/apis/site/v2/sports/soccer"
@@ -393,11 +463,11 @@ class CalcioLiveSensor(Entity):
         except Exception as e:
             _LOGGER.debug(f"Errore nel recupero summary per {event_id}: {e}")
         return None
-    
-    
+
+
     async def _get_calendar_data(self):
         """Recupera il calendario delle partite per ottenere le date di inizio e fine"""
-    
+
         if self._code == "99999":
            # _LOGGER.warning("Competition code 99999 escluso dal recupero del calendario.")
             return None, None
@@ -453,19 +523,19 @@ class CalcioLiveSensor(Entity):
     def _detect_and_dispatch_goals(self, matches):
         """Rileva i goal segnati e dispatcha eventi"""
         live_matches = [m for m in matches if m.get("state") == "in"]
-        
+
         for match in live_matches:
             match_id = f"{match.get('home_team', 'N/A')}_{match.get('away_team', 'N/A')}"
             home_score = match.get("home_score", 0)
             away_score = match.get("away_score", 0)
-            
+
             try:
                 home_score = int(home_score) if home_score != "N/A" else 0
                 away_score = int(away_score) if away_score != "N/A" else 0
             except (ValueError, TypeError):
                 home_score = 0
                 away_score = 0
-            
+
             # Se è la prima volta che vediamo questa partita, salva i punteggi
             if match_id not in self._previous_scores:
                 self._previous_scores[match_id] = {
@@ -474,12 +544,12 @@ class CalcioLiveSensor(Entity):
                     "match_details": match.get("match_details", []).copy()
                 }
                 continue
-            
+
             prev_home = self._previous_scores[match_id]["home"]
             prev_away = self._previous_scores[match_id]["away"]
             prev_details = self._previous_scores[match_id].get("match_details", [])
             curr_details = match.get("match_details", [])
-            
+
             # Rileva goal della squadra casa
             if home_score > prev_home:
                 goals_scored = home_score - prev_home
@@ -496,7 +566,7 @@ class CalcioLiveSensor(Entity):
                     match,
                     goal_scorers
                 )
-            
+
             # Rileva goal della squadra ospite
             if away_score > prev_away:
                 goals_scored = away_score - prev_away
@@ -513,7 +583,7 @@ class CalcioLiveSensor(Entity):
                     match,
                     goal_scorers
                 )
-            
+
             # Aggiorna i punteggi e i dettagli
             self._previous_scores[match_id]["home"] = home_score
             self._previous_scores[match_id]["away"] = away_score
@@ -584,18 +654,18 @@ class CalcioLiveSensor(Entity):
     def _detect_and_dispatch_cards(self, matches):
         """Rileva i cartellini gialli e rossi e dispatcha eventi"""
         live_matches = [m for m in matches if m.get("state") == "in"]
-        
+
         for match in live_matches:
             match_id = f"{match.get('home_team', 'N/A')}_{match.get('away_team', 'N/A')}"
             match_details = match.get("match_details", [])
-            
+
             # Se è la prima volta che vediamo questa partita, salva i dettagli
             if match_id not in self._previous_match_details:
                 self._previous_match_details[match_id] = match_details.copy()
                 continue
-            
+
             prev_details = self._previous_match_details[match_id]
-            
+
             # Controlla i nuovi dettagli
             for detail in match_details:
                 if detail not in prev_details:
@@ -604,7 +674,7 @@ class CalcioLiveSensor(Entity):
                         self._dispatch_card_event("yellow", detail, match)
                     elif "Red Card" in detail:
                         self._dispatch_card_event("red", detail, match)
-            
+
             # Aggiorna i dettagli
             self._previous_match_details[match_id] = match_details.copy()
 
@@ -615,10 +685,10 @@ class CalcioLiveSensor(Entity):
             parts = detail_str.split("': ")
             minute = parts[0].split(" - ")[1] if " - " in parts[0] else "N/A"
             player = parts[1] if len(parts) > 1 else "N/A"
-            
+
             # Distingui se il giocatore è della squadra casa o ospite
             # Semplice heuristica: controlla il match_details per il contesto
-            
+
             event_type = f"calcio_live_{card_type}_card"
             event_data = {
                 "card_type": card_type.upper(),
@@ -643,15 +713,22 @@ class CalcioLiveSensor(Entity):
     def _detect_and_dispatch_match_finished(self, matches):
         """Rileva quando una partita finisce e dispatcha un evento"""
         finished_matches = [m for m in matches if m.get("state") == "post"]
-        
+
         for match in finished_matches:
             match_id = f"{match.get('home_team', 'N/A')}_{match.get('away_team', 'N/A')}"
-            
+
             # Dispatcha l'evento solo una volta per partita
             if match_id not in self._match_finished_dispatched:
                 self._dispatch_match_finished_event(match)
                 self._match_finished_dispatched.add(match_id)
-                self.hass.async_create_task(self._save_match_finished_store())
+                # _detect_and_dispatch_match_finished viene chiamato da _process_data,
+                # che gira in un executor thread (async_add_executor_job), non
+                # nell'event loop. hass.async_create_task richiede di essere chiamato
+                # dall'event loop -> RuntimeError "thread other than the event loop".
+                # hass.add_job è invece thread-safe (usa loop.call_soon_threadsafe al
+                # suo interno) ed è il modo corretto per schedulare una coroutine da
+                # un thread esterno come questo.
+                self.hass.add_job(self._save_match_finished_store())
                 _LOGGER.info(f"Evento fine partita dispatchato per: {match_id}")
 
     def _dispatch_match_finished_event(self, match):
@@ -659,7 +736,7 @@ class CalcioLiveSensor(Entity):
         try:
             # Estrai i giocatori che hanno segnato
             goal_scorers = self._extract_all_goal_scorers(match.get("match_details", []))
-            
+
             event_data = {
                 "home_team": match.get("home_team", "N/A"),
                 "away_team": match.get("away_team", "N/A"),
@@ -684,7 +761,7 @@ class CalcioLiveSensor(Entity):
     def _extract_all_goal_scorers(self, match_details):
         """Estrae tutti i nomi dei giocatori che hanno segnato dalla lista di dettagli della partita"""
         goal_scorers = []
-        
+
         for detail in match_details:
             if "Goal" in detail:
                 # Formato: "Goal - 38': Bryan Mbeumo"
@@ -695,7 +772,7 @@ class CalcioLiveSensor(Entity):
                         goal_scorers.append(player_name)
                 except Exception as e:
                     _LOGGER.debug(f"Errore nell'estrazione nome giocatore: {e}")
-        
+
         return goal_scorers
 
     def _get_minutes_until(self, match_datetime):
@@ -718,9 +795,9 @@ class CalcioLiveSensor(Entity):
         """Computa attributi della prossima partita"""
         if not match:
             return {}
-        
+
         match_datetime = self._parse_match_datetime(match.get("date"))
-        
+
         return {
             "next_match_home_team": match.get("home_team", "N/A"),
             "next_match_away_team": match.get("away_team", "N/A"),
@@ -746,7 +823,7 @@ class CalcioLiveSensor(Entity):
         live_matches = [m for m in matches if m.get("state") == "in"]
         if not live_matches:
             return {}
-        
+
         match = live_matches[0]
         return {
             "live_match_home_team": match.get("home_team", "N/A"),
@@ -774,9 +851,9 @@ class CalcioLiveSensor(Entity):
             self._detect_and_dispatch_goals(matches)
             self._detect_and_dispatch_cards(matches)
             self._detect_and_dispatch_match_finished(matches)
-        
+
         computed = {}
-        
+
         # Info match in corso se esiste
         live_matches = [m for m in matches if m.get("state") == "in"]
         if live_matches:
@@ -784,7 +861,7 @@ class CalcioLiveSensor(Entity):
             computed["has_live_match"] = True
         else:
             computed["has_live_match"] = False
-        
+
         # Info prossima partita
         upcoming_matches = [m for m in matches if m.get("state") == "pre"]
         if upcoming_matches:
@@ -792,7 +869,7 @@ class CalcioLiveSensor(Entity):
             computed["has_upcoming_match"] = True
         else:
             computed["has_upcoming_match"] = False
-        
+
         # Info ultima partita terminata (ultimi 48 ore)
         from .sensori.scoreboard import is_within_last_48_hours
         recent_finished_matches = [m for m in matches
@@ -813,13 +890,13 @@ class CalcioLiveSensor(Entity):
             })
         else:
             computed["has_recent_match"] = False
-        
+
         # Conteggi
         computed["total_matches"] = len(matches)
         computed["live_matches_count"] = len(live_matches)
         computed["upcoming_matches_count"] = len(upcoming_matches)
         computed["finished_matches_count"] = len([m for m in matches if m.get("state") == "post"])
-        
+
         return computed
 
     def _process_data(self, data):
@@ -864,7 +941,7 @@ class CalcioLiveSensor(Entity):
                 "league_info": match_data.get("league_info", "N/A"),
                 "matches": match_data.get("matches", [])
             }
-        
+
         elif self._sensor_type in ["team_matches", "team_match", "team_matches_mixed", "all_matches_today"]:
             def get_team_match_data(next_match_only=False):
                 return process_match_data(
@@ -876,8 +953,8 @@ class CalcioLiveSensor(Entity):
                     end_date=self._filter_end_str(),
                     recent_match_hours=self._recent_match_hours,
                 )
-            
-            
+
+
             if self._sensor_type in ["team_matches", "team_matches_mixed", "all_matches_today"]:
                 #sensor.calciolive_all_ita_1_internazionale - team_matches
                 #sensor.calciolive_all_mixed_internazionale - team_matches_mixed
