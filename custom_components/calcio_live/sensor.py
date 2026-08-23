@@ -268,6 +268,7 @@ class CalcioLiveSensor(Entity):
                             # bracket scoreboards) can block the event loop for seconds otherwise
                             raw = await response.read()
                             data = await self.hass.async_add_executor_job(json.loads, raw)
+                            data = await self._merge_played_schedule(data)
                             _LOGGER.debug(f"Data received for {self._name}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                             # Offload heavy sync processing to executor as well
@@ -379,6 +380,47 @@ class CalcioLiveSensor(Entity):
 
         return None
 
+    async def _merge_played_schedule(self, data):
+        """Il sensore mixed usa /teams/{id}/schedule: con fixture=true ESPN
+        restituisce SOLO le partite future, senza il parametro SOLO quelle già
+        giocate. Servono entrambe, altrimenti il mixed non vede mai risultati
+        live o finali. Unisce le due risposte deduplicando per event id."""
+        if self._sensor_type != "team_matches_mixed" or not self._team_id:
+            return data
+
+        played_url = f"{self.base_url_3}/all/teams/{self._team_id}/schedule"
+        played = await self._fetch_json(played_url)
+        if not played:
+            return data
+
+        events = list(data.get("events") or [])
+        seen = {event.get("id") for event in events}
+        for event in played.get("events") or []:
+            event_id = event.get("id")
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            events.append(event)
+
+        # Le due risposte hanno ordinamenti diversi (future crescente, giocate
+        # decrescente): riordina per data crescente come lo scoreboard.
+        events.sort(key=lambda event: event.get("date") or "")
+        data["events"] = events
+        return data
+
+    async def _fetch_json(self, url):
+        """GET + parse JSON in executor. Restituisce None in caso di errore."""
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url, headers={"Accept-Language": "en"}) as response:
+                    if response.status != 200:
+                        return None
+                    raw = await response.read()
+                    return await self.hass.async_add_executor_job(json.loads, raw)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            _LOGGER.debug(f"Errore nel recupero di {url}: {error}")
+            return None
+
     async def _fetch_match_summary(self, event_id):
         """Recupera il summary completo (lineup, formation, key events) per una partita."""
         if not event_id or not self._code:
@@ -449,6 +491,16 @@ class CalcioLiveSensor(Entity):
             return None
         except (ValueError, TypeError):
             return None
+
+    def _sort_by_date_desc(self, matches):
+        """Ordina dalla più recente alla più vecchia. ESPN restituisce le
+        partite in ordine crescente, quindi senza ordinamento esplicito
+        `[0]` era la partita più VECCHIA, non l'ultima giocata."""
+        return sorted(
+            matches,
+            key=lambda m: self._parse_match_datetime(m.get("date")) or datetime(1970, 1, 1, tzinfo=timezone.utc),
+            reverse=True,
+        )
 
     def _detect_and_dispatch_goals(self, matches):
         """Rileva i goal segnati e dispatcha eventi"""
@@ -795,9 +847,9 @@ class CalcioLiveSensor(Entity):
         
         # Info ultima partita terminata (ultimi 48 ore)
         from .sensori.scoreboard import is_within_last_48_hours
-        recent_finished_matches = [m for m in matches
+        recent_finished_matches = self._sort_by_date_desc([m for m in matches
             if m.get("state") == "post" and is_within_last_48_hours(m.get("date"))
-        ]
+        ])
         if recent_finished_matches:
             last_match = recent_finished_matches[0]
             computed.update({
@@ -893,9 +945,11 @@ class CalcioLiveSensor(Entity):
                         self._state = f"🔴 {lm.get('home_team','?')} {lm.get('home_score','?')} - {lm.get('away_score','?')} {lm.get('away_team','?')} ({lm.get('clock','')})"
                     else:
                         # Priorità 2: Ultima partita terminata (più recente)
-                        finished_matches = [m for m in matches if m.get("state") == "post"]
+                        finished_matches = self._sort_by_date_desc(
+                            [m for m in matches if m.get("state") == "post"]
+                        )
                         if finished_matches:
-                            fm = finished_matches[0]  # Prima della lista = più recente
+                            fm = finished_matches[0]  # Ordinati per data: la più recente
                             self._state = f"✅ {fm.get('home_team','?')} {fm.get('home_score','?')} - {fm.get('away_score','?')} {fm.get('away_team','?')}"
                         else:
                             # Priorità 3: Prossima partita in programma

@@ -75,39 +75,42 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
             season_info = get_season_slug_or_displayname(match)
 
             competitions = match.get("competitions", [])
+            competition = competitions[0] if competitions else {}
+
             # Estrai il nome della lega/competizione
-            league_name = competitions[0].get("league", {}).get("displayName", "N/A") if competitions else "N/A"
-            
-            competitors = competitions[0].get("competitors", []) if competitions else []
+            league_name = _get_league_name(match, competition, data)
 
-            home_team_data = competitors[0].get("team", {})
+            competitors = competition.get("competitors", []) or []
+            if len(competitors) < 2:
+                continue
+
+            # L'ordine di competitors non è garantito: usa homeAway quando c'è.
+            home_competitor = next((c for c in competitors if c.get("homeAway") == "home"), competitors[0])
+            away_competitor = next((c for c in competitors if c.get("homeAway") == "away"), competitors[1])
+
+            home_team_data = home_competitor.get("team", {}) or {}
             home_team = home_team_data.get("displayName", "N/A")
-            home_logo = home_team_data.get("logo", None)
-            if not home_logo:
-                home_logos = home_team_data.get("logos", [{}])
-                home_logo = home_logos[0].get("href", "N/A")
-            home_form = competitors[0].get("form", "N/A")
-            home_score = competitors[0].get("score", "N/A")
-            home_statistics = _get_statistics(competitors[0])
+            home_logo = _get_team_logo(home_team_data)
+            home_form = home_competitor.get("form", "N/A")
+            home_score = _get_score(home_competitor)
+            home_statistics = _get_statistics(home_competitor)
 
-            away_team_data = competitors[1].get("team", {})
+            away_team_data = away_competitor.get("team", {}) or {}
             away_team = away_team_data.get("displayName", "N/A")
-            away_logo = away_team_data.get("logo", None)
-            if not away_logo:
-                away_logos = away_team_data.get("logos", [{}])
-                away_logo = away_logos[0].get("href", "N/A")
-            away_form = competitors[1].get("form", "N/A")
-            away_score = competitors[1].get("score", "N/A")
-            away_statistics = _get_statistics(competitors[1])
+            away_logo = _get_team_logo(away_team_data)
+            away_form = away_competitor.get("form", "N/A")
+            away_score = _get_score(away_competitor)
+            away_statistics = _get_statistics(away_competitor)
 
-            status_type = match.get("status", {}).get("type", {})
+            status_obj = _get_status(match, competition)
+            status_type = status_obj.get("type", {}) or {}
             match_state = status_type.get("state", "N/A")
             match_status = status_type.get("description", "N/A")
             status_detail = status_type.get("detail", "N/A")
-            clock = match.get("status", {}).get("displayClock", "N/A")
-            period = match.get("status", {}).get("period", "N/A")
+            clock = status_obj.get("displayClock", "N/A")
+            period = status_obj.get("period", "N/A")
 
-            venue_obj = competitions[0].get("venue", {}) or {}
+            venue_obj = competition.get("venue", {}) or {}
             venue = venue_obj.get("fullName", "N/A")
             venue_address = venue_obj.get("address", {}) or {}
             venue_city = venue_address.get("city", "N/A")
@@ -115,18 +118,18 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
 
             home_abbrev = home_team_data.get("abbreviation", "N/A")
             home_color = home_team_data.get("color", "N/A")
-            home_record = _get_record(competitors[0])
-            home_top_scorer = _get_top_scorer(competitors[0])
+            home_record = _get_record(home_competitor)
+            home_top_scorer = _get_top_scorer(home_competitor)
 
             away_abbrev = away_team_data.get("abbreviation", "N/A")
             away_color = away_team_data.get("color", "N/A")
-            away_record = _get_record(competitors[1])
-            away_top_scorer = _get_top_scorer(competitors[1])
+            away_record = _get_record(away_competitor)
+            away_top_scorer = _get_top_scorer(away_competitor)
 
-            broadcast = _get_broadcast(competitions[0])
-            attendance = competitions[0].get("attendance", 0)
+            broadcast = _get_broadcast(competition)
+            attendance = competition.get("attendance", 0)
 
-            match_details = _get_details(competitions[0].get("details", []))
+            match_details = _get_details(competition.get("details", []))
 
             if team_name and (team_name.lower() in home_team.lower() or team_name.lower() in away_team.lower()):
                 team_logo = home_logo if team_name.lower() in home_team.lower() else away_logo
@@ -232,6 +235,58 @@ def is_within_recent_window(end_time, hours=24):
 def is_within_last_48_hours(end_time):
     return is_within_recent_window(end_time, 48)
 
+def _get_status(match, competition):
+    """Lo status della partita sta a livello evento nell'endpoint scoreboard e
+    dentro competitions[0] nell'endpoint /teams/{id}/schedule (sensore mixed).
+    Senza questo fallback il mixed restituiva state/clock/period = "N/A" e non
+    riconosceva mai le partite in corso."""
+    return match.get("status") or competition.get("status") or {}
+
+
+def _get_score(competitor):
+    """Nello scoreboard lo score è una stringa ("2"), nello schedule è un dict
+    {"value": 2.0, "displayValue": "2"}. Normalizza sempre a stringa."""
+    score = competitor.get("score")
+    if isinstance(score, dict):
+        display = score.get("displayValue")
+        if display not in (None, ""):
+            return str(display)
+        value = score.get("value")
+        if value is None:
+            return "N/A"
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    if score in (None, ""):
+        return "N/A"
+    return str(score)
+
+
+def _get_league_name(match, competition, data):
+    """Il nome della competizione vive in posti diversi a seconda dell'endpoint:
+    competitions[0].league, event.league (schedule) o leagues[0] (scoreboard)."""
+    for source in (competition.get("league"), match.get("league")):
+        if isinstance(source, dict):
+            name = source.get("displayName") or source.get("name")
+            if name:
+                return name
+    leagues = data.get("leagues") or []
+    if leagues:
+        return leagues[0].get("displayName") or leagues[0].get("name") or "N/A"
+    return "N/A"
+
+
+def _get_team_logo(team_data):
+    """Il logo sta in team.logo (scoreboard) o in team.logos[0].href (schedule)."""
+    logo = team_data.get("logo")
+    if logo:
+        return logo
+    logos = team_data.get("logos") or []
+    if logos:
+        return logos[0].get("href", "N/A")
+    return "N/A"
+
+
 def _get_statistics(competitor):
     statistics = {}
     stats = competitor.get("statistics", [])
@@ -265,11 +320,22 @@ def _get_top_scorer(competitor):
     return None
 
 def _get_broadcast(competition):
-    """Restituisce il primo canale TV/streaming disponibile."""
+    """Restituisce il primo canale TV/streaming disponibile.
+    Lo scoreboard espone geoBroadcasts, lo schedule solo broadcasts."""
     gbs = competition.get("geoBroadcasts", []) or []
     if gbs:
         media = gbs[0].get("media", {}) or {}
-        return media.get("shortName", "")
+        name = media.get("shortName", "")
+        if name:
+            return name
+    for broadcast in competition.get("broadcasts", []) or []:
+        media = broadcast.get("media", {}) or {}
+        name = media.get("shortName", "")
+        if name:
+            return name
+        names = broadcast.get("names") or []
+        if names:
+            return names[0]
     return ""
 
 def process_summary_data(data):
