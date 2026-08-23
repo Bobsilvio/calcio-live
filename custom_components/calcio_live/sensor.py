@@ -329,14 +329,29 @@ class CalcioLiveSensor(Entity):
             # stagione intera) con limit=1000. Per alcune competizioni (es. Serie A
             # "ita.1") ESPN risponde 200 ma con corpo vuoto/non valido per questo
             # range così ampio, anche se lo stesso endpoint funziona perfettamente
-            # SENZA il parametro "dates" (torna la giornata di campionato corrente).
-            # Ritentiamo quindi una volta senza range di date, così il sensore mostra
-            # almeno le partite della giornata corrente invece di restare bloccato
-            # su "unknown" a tempo indeterminato.
+            # con un range più ristretto attorno alla data odierna.
+            #
+            # NOTA: una prima versione di questo fallback ometteva del tutto il
+            # parametro "dates" (tornando solo la giornata corrente di ESPN). Per i
+            # sensori "team_match"/"team_matches" questo nascondeva la prossima
+            # partita quando cadeva più avanti nella settimana (es. Napoli con un
+            # turno di riposo che gioca la giornata successiva 7-8 giorni dopo):
+            # la squadra non compariva tra le partite del giorno corrente e il
+            # sensore restava su "Nessuna partita disponibile" anche se la partita
+            # esisteva ed era già programmata. Usiamo quindi una finestra di date
+            # ristretta (-30/+60 giorni da oggi) che copre passato recente e
+            # prossimo turno senza incappare nel problema del range stagionale
+            # completo.
             if self._sensor_type in ("match_day", "team_match", "team_matches") and self._code:
-                fallback_url = f"{self.base_url_3}/{self._code}/scoreboard"
+                _fallback_today = datetime.now()
+                _fallback_start = (_fallback_today - timedelta(days=30)).strftime("%Y%m%d")
+                _fallback_end = (_fallback_today + timedelta(days=60)).strftime("%Y%m%d")
+                fallback_url = (
+                    f"{self.base_url_3}/{self._code}/scoreboard"
+                    f"?limit=1000&dates={_fallback_start}-{_fallback_end}"
+                )
                 _LOGGER.warning(
-                    f"Fallback senza range di date per {self._name} - URL: {fallback_url}"
+                    f"Fallback con range ridotto (-30/+60 giorni) per {self._name} - URL: {fallback_url}"
                 )
                 try:
                     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
@@ -347,7 +362,7 @@ class CalcioLiveSensor(Entity):
                                 CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                                 await self.hass.async_add_executor_job(self._process_data, data)
                                 await self._enrich_with_summary()
-                                _LOGGER.info(f"Finished update for {self._name} (fallback senza range date)")
+                                _LOGGER.info(f"Finished update for {self._name} (fallback range ridotto)")
                             else:
                                 _LOGGER.error(
                                     f"Fallback fallito per {self._name}: status {response.status} - URL: {fallback_url}"
