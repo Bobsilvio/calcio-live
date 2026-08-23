@@ -268,7 +268,7 @@ class CalcioLiveSensor(Entity):
                             # bracket scoreboards) can block the event loop for seconds otherwise
                             raw = await response.read()
                             data = await self.hass.async_add_executor_job(json.loads, raw)
-                            data = await self._merge_played_schedule(data)
+                            data = await self._merge_mixed_sources(data)
                             _LOGGER.debug(f"Data received for {self._name}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                             # Offload heavy sync processing to executor as well
@@ -380,32 +380,70 @@ class CalcioLiveSensor(Entity):
 
         return None
 
-    async def _merge_played_schedule(self, data):
-        """Il sensore mixed usa /teams/{id}/schedule: con fixture=true ESPN
-        restituisce SOLO le partite future, senza il parametro SOLO quelle già
-        giocate. Servono entrambe, altrimenti il mixed non vede mai risultati
-        live o finali. Unisce le due risposte deduplicando per event id."""
+    def _event_involves_team(self, event):
+        """True se il team_id configurato è uno dei due competitor dell'evento."""
+        competitions = event.get("competitions") or []
+        competitors = competitions[0].get("competitors", []) if competitions else []
+        return any(
+            str((competitor.get("team") or {}).get("id")) == str(self._team_id)
+            for competitor in competitors
+        )
+
+    async def _merge_mixed_sources(self, data):
+        """Il sensore mixed parte da /teams/{id}/schedule?fixture=true, che
+        restituisce SOLO le partite future: senza il parametro lo stesso
+        endpoint restituisce SOLO quelle già giocate, quindi da solo non può
+        mostrare né risultati né partite in corso.
+
+        Unisce tre sorgenti deduplicando per event id:
+        - schedule?fixture=true (base): calendario futuro
+        - schedule: partite già giocate, con i risultati finali
+        - /all/scoreboard: le partite di oggi. È l'unica sorgente che espone
+          lo stato live in modo affidabile, quindi ha la precedenza sulle
+          altre due quando lo stesso evento compare più volte.
+        """
         if self._sensor_type != "team_matches_mixed" or not self._team_id:
             return data
 
-        played_url = f"{self.base_url_3}/all/teams/{self._team_id}/schedule"
-        played = await self._fetch_json(played_url)
-        if not played:
-            return data
+        events = {}
+        order = []
 
-        events = list(data.get("events") or [])
-        seen = {event.get("id") for event in events}
-        for event in played.get("events") or []:
+        def add(event, overwrite):
             event_id = event.get("id")
-            if event_id in seen:
-                continue
-            seen.add(event_id)
-            events.append(event)
+            if event_id is None:
+                return
+            previous = events.get(event_id)
+            if previous is not None:
+                if not overwrite:
+                    return
+                # /all/scoreboard non espone la competizione a livello evento:
+                # la recupero dalla versione schedule che sto sostituendo,
+                # altrimenti la partita di oggi perde league_name.
+                if not event.get("league") and previous.get("league"):
+                    event["league"] = previous["league"]
+            else:
+                order.append(event_id)
+            events[event_id] = event
 
-        # Le due risposte hanno ordinamenti diversi (future crescente, giocate
+        for event in data.get("events") or []:
+            add(event, overwrite=False)
+
+        played = await self._fetch_json(f"{self.base_url_3}/all/teams/{self._team_id}/schedule")
+        if played:
+            for event in played.get("events") or []:
+                add(event, overwrite=False)
+
+        today = await self._fetch_json(f"{self.base_url_2}/all/scoreboard")
+        if today:
+            for event in today.get("events") or []:
+                if self._event_involves_team(event):
+                    add(event, overwrite=True)
+
+        # Le sorgenti hanno ordinamenti diversi (future crescente, giocate
         # decrescente): riordina per data crescente come lo scoreboard.
-        events.sort(key=lambda event: event.get("date") or "")
-        data["events"] = events
+        merged = [events[event_id] for event_id in order]
+        merged.sort(key=lambda event: event.get("date") or "")
+        data["events"] = merged
         return data
 
     async def _fetch_json(self, url):
