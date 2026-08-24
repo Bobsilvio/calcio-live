@@ -342,6 +342,21 @@ class CalcioLiveSensor(Entity):
                 ko_year = now.year
             return f"{self.base_url_3}/{self._code}/scoreboard?limit=300&dates={ko_year}0201-{ko_year}0731"
 
+        if self._sensor_type == "team_matches_mixed" and self._team_id:
+            # Il mixed segue la squadra in TUTTE le competizioni, quindi il
+            # calendario di una singola lega non lo rappresenta. Ereditava il
+            # competition_code della config entry e con esso la sua finestra
+            # stagionale: se la squadra è configurata su una competizione il cui
+            # calendario ESPN non è ancora stato ruotato (es. uefa.champions che
+            # ad agosto 2026 riporta ancora 2025-07-01 -> 2026-07-01) il filtro
+            # di process_match_data scartava OGNI partita e il sensore restava
+            # vuoto. Le sorgenti dello schedule sono già limitate alla stagione
+            # corrente, quindi qui basta una finestra rolling larga.
+            now = datetime.now()
+            self._dyn_start_date = now - timedelta(days=365)
+            self._dyn_end_date = now + timedelta(days=365)
+            return f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+
         if self._code:
             season_start, season_end = await self._get_calendar_data()
 
@@ -369,8 +384,15 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type in ("match_day", "team_match", "team_matches"):
             return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={season_start}-{season_end}"
 
-        elif self._sensor_type == "team_matches_mixed" and self._team_name:
-            return f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+        elif self._sensor_type == "team_matches_mixed":
+            # Il caso con team_id è già stato gestito sopra: qui ci si arriva
+            # solo se manca. Senza team_id l'URL sarebbe /all/teams/None/... ,
+            # cioè un 404 ripetuto a ogni update: meglio non chiamare affatto.
+            _LOGGER.error(
+                f"Team ID mancante per {self._name}: il sensore mixed non può "
+                f"essere aggiornato. Riconfigura l'integrazione indicando il Team ID."
+            )
+            return None
 
         elif self._sensor_type == "all_matches_today":
             return f"{self.base_url_2}/all/scoreboard"
