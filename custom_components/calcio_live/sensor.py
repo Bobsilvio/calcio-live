@@ -97,21 +97,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 ),
             ]
 
-            # Il sensore "mixed" aggrega TUTTE le partite della squadra a
-            # prescindere dalla competizione (usa solo team_id), quindi il
-            # suo unique_id (f"{name}_{sensor_type}") dipende solo dal nome
-            # squadra normalizzato, non dalla competition_code. Se la stessa
-            # squadra viene configurata su più competizioni (es. Napoli Serie
-            # A + Napoli Champions League), ogni config entry provava a
-            # creare un sensore identico -> "Platform calcio_live does not
-            # generate unique IDs" e uno dei due veniva scartato con un
-            # ERROR nei log, lasciando l'entità non disponibile. Lo creiamo
-            # una sola volta per squadra, tracciando i nomi già serviti in
-            # hass.data (condiviso tra tutte le config entry).
-            mixed_created = hass.data[DOMAIN].setdefault("mixed_sensors_created", set())
+            # mixed_sensors_created è ora un dict {mixed_name: owning_entry_id}
+            # invece di un set: serve a sapere QUALE config entry ha creato il
+            # sensore mixed, così async_unload_entry (in __init__.py) può
+            # liberare il nome solo quando viene rimossa l'entry che lo
+            # possiede davvero, e non lasciarlo "bloccato" fino al riavvio
+            # di HA (come segnalato in review sulla PR).
+            mixed_created = hass.data[DOMAIN].setdefault("mixed_sensors_created", {})
             mixed_name = f"calciolive_all_mixed_{team_name_normalized}"
             if mixed_name not in mixed_created:
-                mixed_created.add(mixed_name)
+                mixed_created[mixed_name] = entry.entry_id
                 sensors.append(
                     CalcioLiveSensor(
                         hass, mixed_name, competition_code, "team_matches_mixed",
