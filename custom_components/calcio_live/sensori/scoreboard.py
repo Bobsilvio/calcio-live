@@ -110,6 +110,17 @@ def process_match_data(data, hass, team_name=None, next_match_only=False, start_
             clock = status_obj.get("displayClock", "N/A")
             period = status_obj.get("period", "N/A")
 
+            # Lo scoreboard riporta "0" per una partita non ancora giocata, lo
+            # schedule lascia lo score a null. Allineiamo i due endpoint: senza
+            # questo il sensore mixed espone "N/A" e la card, che protegge dal
+            # caso solo dove controlla state == "pre", finisce per mostrare
+            # "N/A - N/A" nel popup di una partita in programma.
+            if match_state == "pre":
+                if home_score == "N/A":
+                    home_score = "0"
+                if away_score == "N/A":
+                    away_score = "0"
+
             venue_obj = competition.get("venue", {}) or {}
             venue = venue_obj.get("fullName", "N/A")
             venue_address = venue_obj.get("address", {}) or {}
