@@ -217,12 +217,22 @@ class CalcioLiveSensor(Entity):
         )
 
     async def _async_scheduled_update(self, now=None):
-        """Update periodico, sostituisce il polling di HA."""
+        """Update periodico, sostituisce il polling di HA.
+
+        Passa da async_update_ha_state(force_refresh=True), non da
+        async_update() diretta: async_track_time_interval schedula il tick
+        successivo PRIMA di eseguire il job e lo lancia in background, quindi
+        due update possono sovrapporsi se una richiesta a ESPN dura più
+        dell'intervallo. async_update_ha_state passa per async_device_update,
+        che ha la guardia di rientranza `_update_staged` e scarta il tick
+        sovrapposto: senza, due esecuzioni concorrenti andrebbero in race su
+        _previous_scores e _previous_match_details, con eventi gol/cartellino
+        duplicati o stato più vecchio scritto dopo quello più recente.
+        """
         try:
-            await self.async_update()
+            await self.async_update_ha_state(force_refresh=True)
         except Exception as error:  # non lasciamo morire il timer
             _LOGGER.error(f"Errore nell'update di {self._name}: {error}")
-        self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self):
         """Ferma il timer quando l'entità viene rimossa."""
@@ -431,7 +441,9 @@ class CalcioLiveSensor(Entity):
 
         calendar_url = f"{self.base_url_2}/{self._code}/scoreboard"
         try:
-            async with aiohttp.ClientSession() as session:
+            # Senza timeout esplicito aiohttp attende fino a 5 minuti: un update
+            # poteva restare appeso ben oltre lo scan_interval.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                 async with session.get(calendar_url, headers={"Accept-Language": "en"}) as response:
                     response.raise_for_status()
                     raw = await response.read()
