@@ -10,6 +10,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import random
 from .const import DOMAIN, _LOGGER
 
+# ESPN risponde HTTP 400 ("Failed to get events endpoint.") ai range di date
+# più lunghi di 365 giorni. La soglia è netta: 365 giorni -> 200, 366 -> 400.
+# Alcune leghe espongono un calendario stagionale più largo di così (es. Serie A
+# 2026-06-05 -> 2027-07-01, 391 giorni), quindi la richiesta falliva sempre.
+MAX_ESPN_RANGE_DAYS = 365
+
 # Competizioni con fase a eliminazione diretta (knockout bracket)
 KNOCKOUT_LEAGUES = {
     "uefa.champions",
@@ -359,6 +365,8 @@ class CalcioLiveSensor(Entity):
             season_start = self._start_date.strftime("%Y-%m-%d")
             season_end = self._end_date.strftime("%Y-%m-%d")
 
+        season_start, season_end = self._clamp_espn_range(season_start, season_end)
+
         season_start = season_start[:10].replace("-", "")
         season_end = season_end[:10].replace("-", "")
 
@@ -378,6 +386,41 @@ class CalcioLiveSensor(Entity):
             return f"{self.base_url_2}/{self._code}/news?limit=15"
 
         return None
+
+    def _clamp_espn_range(self, season_start, season_end):
+        """Riduce il range di date entro il limite accettato da ESPN.
+
+        ESPN rifiuta con 400 qualsiasi finestra più lunga di MAX_ESPN_RANGE_DAYS,
+        e diverse leghe hanno un calendario stagionale più largo: la Serie A
+        dichiara 2026-06-05 -> 2027-07-01 (391 giorni), quindi ogni richiesta di
+        match_day/team_match/team_matches falliva, il sensore restava su
+        "Nessuna partita disponibile" e ogni update sprecava 3 tentativi con 5
+        secondi di attesa ciascuno.
+
+        Teniamo l'inizio stagione e tagliamo la fine: una stagione dura ~10 mesi,
+        quindi start+365 la copre comunque per intero. Se però quella finestra
+        si chiude prima di oggi (siamo nella coda di padding del calendario),
+        ancoriamo il range alla fine per non perdere il presente.
+        """
+        try:
+            start = datetime.strptime(season_start[:10], "%Y-%m-%d")
+            end = datetime.strptime(season_end[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return season_start, season_end
+
+        if (end - start).days <= MAX_ESPN_RANGE_DAYS:
+            return season_start, season_end
+
+        clamped_end = start + timedelta(days=MAX_ESPN_RANGE_DAYS)
+        if clamped_end < datetime.now():
+            start = end - timedelta(days=MAX_ESPN_RANGE_DAYS)
+            clamped_end = end
+
+        _LOGGER.debug(
+            f"Range ESPN ridotto per {self._name}: {season_start[:10]}-{season_end[:10]} "
+            f"({(end - start).days} giorni) -> {start:%Y-%m-%d}-{clamped_end:%Y-%m-%d}"
+        )
+        return start.strftime("%Y-%m-%d"), clamped_end.strftime("%Y-%m-%d")
 
     async def _fetch_match_summary(self, event_id):
         """Recupera il summary completo (lineup, formation, key events) per una partita."""
