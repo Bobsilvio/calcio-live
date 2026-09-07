@@ -7,6 +7,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 import random
 from .const import DOMAIN, _LOGGER
 
@@ -244,6 +245,7 @@ class CalcioLiveSensor(Entity):
         # Traccia le partite per cui è stato dispatchato l'evento di fine
         self._match_finished_dispatched = set()
         self._store = None
+        self._unsub_interval = None
 
         self.base_url = "https://site.web.api.espn.com/apis/v2/sports/soccer"
         self.base_url_2 = "https://site.api.espn.com/apis/site/v2/sports/soccer"
@@ -260,6 +262,39 @@ class CalcioLiveSensor(Entity):
             _LOGGER.debug(
                 f"Caricati {len(self._match_finished_dispatched)} match_finished da storage per {self._name}"
             )
+
+        # scan_interval veniva salvato su self._scan_interval e mai usato: senza
+        # una costante SCAN_INTERVAL nel modulo, HA applicava il proprio default
+        # del dominio sensor (30 secondi) a TUTTI i sensori, ignorando i 3
+        # minuti configurati. Schedulando noi l'update, l'opzione torna a valere
+        # e si smette di martellare ESPN.
+        self._unsub_interval = async_track_time_interval(
+            self.hass, self._async_scheduled_update, self._scan_interval
+        )
+
+    async def _async_scheduled_update(self, now=None):
+        """Update periodico, sostituisce il polling di HA.
+
+        Passa da async_update_ha_state(force_refresh=True), non da
+        async_update() diretta: async_track_time_interval schedula il tick
+        successivo PRIMA di eseguire il job e lo lancia in background, quindi
+        due update possono sovrapporsi se una richiesta a ESPN dura più
+        dell'intervallo. async_update_ha_state passa per async_device_update,
+        che ha la guardia di rientranza `_update_staged` e scarta il tick
+        sovrapposto: senza, due esecuzioni concorrenti andrebbero in race su
+        _previous_scores e _previous_match_details, con eventi gol/cartellino
+        duplicati o stato più vecchio scritto dopo quello più recente.
+        """
+        try:
+            await self.async_update_ha_state(force_refresh=True)
+        except Exception as error:  # non lasciamo morire il timer
+            _LOGGER.error(f"Errore nell'update di {self._name}: {error}")
+
+    async def async_will_remove_from_hass(self):
+        """Ferma il timer quando l'entità viene rimossa."""
+        if self._unsub_interval:
+            self._unsub_interval()
+            self._unsub_interval = None
 
     async def _save_match_finished_store(self):
         """Salva il set dei match_finished nel file .storage di HA."""
@@ -286,7 +321,9 @@ class CalcioLiveSensor(Entity):
 
     @property
     def should_poll(self):
-        return True
+        # Il polling lo gestiamo noi in async_added_to_hass: HA non sa nulla
+        # dell'intervallo per-entità configurato dall'utente.
+        return False
 
     @property
     def unique_id(self):
@@ -631,7 +668,9 @@ class CalcioLiveSensor(Entity):
 
         calendar_url = f"{self.base_url_2}/{self._code}/scoreboard"
         try:
-            async with aiohttp.ClientSession() as session:
+            # Senza timeout esplicito aiohttp attende fino a 5 minuti: un update
+            # poteva restare appeso ben oltre lo scan_interval.
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                 async with session.get(calendar_url, headers={"Accept-Language": "en"}) as response:
                     response.raise_for_status()
                     raw = await response.read()
@@ -1011,10 +1050,14 @@ class CalcioLiveSensor(Entity):
 
     def _compute_all_matches_attributes(self, matches):
         """Computa attributi per tutte le partite"""
-        # Dispatch eventi solo per i sensori principali.
-        # team_matches_mixed coprirebbe le stesse partite già gestite da team_matches,
-        # causando eventi duplicati per ogni cartellino/goal/fine partita.
-        if self._sensor_type != "team_matches_mixed":
+        # Dispatch eventi solo per i sensori legati a UNA squadra seguita.
+        # - team_matches_mixed coprirebbe le stesse partite già gestite da
+        #   team_matches, causando eventi duplicati per ogni cartellino/goal.
+        # - all_matches_today legge lo scoreboard globale di ESPN, che contiene
+        #   ~100 partite di tutte le leghe del mondo: emettere eventi da lì
+        #   significa notificare gol e cartellini di partite che l'utente non
+        #   segue. È la causa delle notifiche a raffica di #11 e #13.
+        if self._sensor_type not in ("team_matches_mixed", "all_matches_today"):
             self._detect_and_dispatch_goals(matches)
             self._detect_and_dispatch_cards(matches)
             self._detect_and_dispatch_match_finished(matches)
