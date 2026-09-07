@@ -72,17 +72,23 @@ recorder:
       - sensor.calciolive_*
   ```
 
-> ℹ️ I payload degli attributi sono già ridotti ai soli campi usati dalle card
-> (bracket, lineup, timeline, h2h), ma sensori come `sensor.calciolive_bracket_*`
-> e `sensor.calciolive_next_*` possono comunque avvicinarsi al limite di 16384 byte
-> del recorder. Escluderli con lo snippet qui sopra elimina i warning
-> *"State attributes ... exceed maximum size of 16384 bytes"* e alleggerisce il DB.
+> ⚠️ **Lo snippet qui sopra non è opzionale** per i sensori `sensor.calciolive_all_*`
+> e `sensor.calciolive_all_mixed_*`: contengono il calendario completo della stagione
+> (30-90 partite) e superano *sempre* il limite di 16384 byte del recorder. I payload
+> sono già ridotti ai soli campi usati dalle card, ma un calendario intero non può
+> stare in 16 KB. Il warning
+> *"State attributes ... exceed maximum size of 16384 bytes"* riguarda **solo** la
+> registrazione nel database: lo stato e gli attributi restano completi e le card
+> continuano a funzionare. Escludendo le entità dal recorder il warning sparisce.
 
-> ℹ️ The attribute payloads are already trimmed to only the fields the cards use
-> (bracket, lineup, timeline, h2h), but sensors like `sensor.calciolive_bracket_*`
-> and `sensor.calciolive_next_*` can still approach the recorder's 16384-byte limit.
-> Excluding them with the snippet above removes the
-> *"State attributes ... exceed maximum size of 16384 bytes"* warnings and lightens the DB.
+> ⚠️ **The snippet above is not optional** for the `sensor.calciolive_all_*` and
+> `sensor.calciolive_all_mixed_*` sensors: they carry the full season calendar
+> (30-90 matches) and will *always* exceed the recorder's 16384-byte limit. The
+> payloads are already trimmed to only the fields the cards use, but a whole season
+> cannot fit in 16 KB. The
+> *"State attributes ... exceed maximum size of 16384 bytes"* warning only affects
+> **database recording**: the state and its attributes stay complete and the cards
+> keep working. Excluding the entities from the recorder removes the warning.
 
 ## Note
     Puoi seguire più campionati o più squadre.\

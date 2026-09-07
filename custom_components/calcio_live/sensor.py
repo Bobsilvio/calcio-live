@@ -281,6 +281,7 @@ class CalcioLiveSensor(Entity):
                             # bracket scoreboards) can block the event loop for seconds otherwise
                             raw = await response.read()
                             data = await self.hass.async_add_executor_job(json.loads, raw)
+                            data = await self._merge_mixed_sources(data)
                             _LOGGER.debug(f"Data received for {self._name}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                             # Offload heavy sync processing to executor as well
@@ -421,6 +422,21 @@ class CalcioLiveSensor(Entity):
                 ko_year = now.year
             return f"{self.base_url_3}/{self._code}/scoreboard?limit=300&dates={ko_year}0201-{ko_year}0731"
 
+        if self._sensor_type == "team_matches_mixed" and self._team_id:
+            # Il mixed segue la squadra in TUTTE le competizioni, quindi il
+            # calendario di una singola lega non lo rappresenta. Ereditava il
+            # competition_code della config entry e con esso la sua finestra
+            # stagionale: se la squadra è configurata su una competizione il cui
+            # calendario ESPN non è ancora stato ruotato (es. uefa.champions che
+            # ad agosto 2026 riporta ancora 2025-07-01 -> 2026-07-01) il filtro
+            # di process_match_data scartava OGNI partita e il sensore restava
+            # vuoto. Le sorgenti dello schedule sono già limitate alla stagione
+            # corrente, quindi qui basta una finestra rolling larga.
+            now = datetime.now()
+            self._dyn_start_date = now - timedelta(days=365)
+            self._dyn_end_date = now + timedelta(days=365)
+            return f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+
         if self._code:
             season_start, season_end = await self._get_calendar_data()
 
@@ -448,8 +464,15 @@ class CalcioLiveSensor(Entity):
         elif self._sensor_type in ("match_day", "team_match", "team_matches"):
             return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={season_start}-{season_end}"
 
-        elif self._sensor_type == "team_matches_mixed" and self._team_name:
-            return f"{self.base_url_3}/all/teams/{self._team_id}/schedule?fixture=true"
+        elif self._sensor_type == "team_matches_mixed":
+            # Il caso con team_id è già stato gestito sopra: qui ci si arriva
+            # solo se manca. Senza team_id l'URL sarebbe /all/teams/None/... ,
+            # cioè un 404 ripetuto a ogni update: meglio non chiamare affatto.
+            _LOGGER.error(
+                f"Team ID mancante per {self._name}: il sensore mixed non può "
+                f"essere aggiornato. Riconfigura l'integrazione indicando il Team ID."
+            )
+            return None
 
         elif self._sensor_type == "all_matches_today":
             return f"{self.base_url_2}/all/scoreboard"
@@ -458,6 +481,85 @@ class CalcioLiveSensor(Entity):
             return f"{self.base_url_2}/{self._code}/news?limit=15"
 
         return None
+
+    def _event_involves_team(self, event):
+        """True se il team_id configurato è uno dei due competitor dell'evento."""
+        competitions = event.get("competitions") or []
+        competitors = competitions[0].get("competitors", []) if competitions else []
+        return any(
+            str((competitor.get("team") or {}).get("id")) == str(self._team_id)
+            for competitor in competitors
+        )
+
+    async def _merge_mixed_sources(self, data):
+        """Il sensore mixed parte da /teams/{id}/schedule?fixture=true, che
+        restituisce SOLO le partite future: senza il parametro lo stesso
+        endpoint restituisce SOLO quelle già giocate, quindi da solo non può
+        mostrare né risultati né partite in corso.
+
+        Unisce tre sorgenti deduplicando per event id:
+        - schedule?fixture=true (base): calendario futuro
+        - schedule: partite già giocate, con i risultati finali
+        - /all/scoreboard: le partite di oggi. È l'unica sorgente che espone
+          lo stato live in modo affidabile, quindi ha la precedenza sulle
+          altre due quando lo stesso evento compare più volte.
+        """
+        if self._sensor_type != "team_matches_mixed" or not self._team_id:
+            return data
+
+        events = {}
+        order = []
+
+        def add(event, overwrite):
+            event_id = event.get("id")
+            if event_id is None:
+                return
+            previous = events.get(event_id)
+            if previous is not None:
+                if not overwrite:
+                    return
+                # /all/scoreboard non espone la competizione a livello evento:
+                # la recupero dalla versione schedule che sto sostituendo,
+                # altrimenti la partita di oggi perde league_name.
+                if not event.get("league") and previous.get("league"):
+                    event["league"] = previous["league"]
+            else:
+                order.append(event_id)
+            events[event_id] = event
+
+        for event in data.get("events") or []:
+            add(event, overwrite=False)
+
+        played = await self._fetch_json(f"{self.base_url_3}/all/teams/{self._team_id}/schedule")
+        if played:
+            for event in played.get("events") or []:
+                add(event, overwrite=False)
+
+        today = await self._fetch_json(f"{self.base_url_2}/all/scoreboard")
+        if today:
+            for event in today.get("events") or []:
+                if self._event_involves_team(event):
+                    add(event, overwrite=True)
+
+        # Le sorgenti hanno ordinamenti diversi (future crescente, giocate
+        # decrescente): riordina per data crescente come lo scoreboard.
+        merged = [events[event_id] for event_id in order]
+        merged.sort(key=lambda event: event.get("date") or "")
+        data["events"] = merged
+        return data
+
+    async def _fetch_json(self, url):
+        """GET + parse JSON in executor. Restituisce None in caso di errore."""
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url, headers={"Accept-Language": "en"}) as response:
+                    if response.status != 200:
+                        return None
+                    raw = await response.read()
+                    return await self.hass.async_add_executor_job(json.loads, raw)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+            _LOGGER.debug(f"Errore nel recupero di {url}: {error}")
+            return None
 
     async def _fetch_match_summary(self, event_id):
         """Recupera il summary completo (lineup, formation, key events) per una partita."""
@@ -529,6 +631,16 @@ class CalcioLiveSensor(Entity):
             return None
         except (ValueError, TypeError):
             return None
+
+    def _sort_by_date_desc(self, matches):
+        """Ordina dalla più recente alla più vecchia. ESPN restituisce le
+        partite in ordine crescente, quindi senza ordinamento esplicito
+        `[0]` era la partita più VECCHIA, non l'ultima giocata."""
+        return sorted(
+            matches,
+            key=lambda m: self._parse_match_datetime(m.get("date")) or datetime(1970, 1, 1, tzinfo=timezone.utc),
+            reverse=True,
+        )
 
     def _detect_and_dispatch_goals(self, matches):
         """Rileva i goal segnati e dispatcha eventi"""
@@ -882,9 +994,9 @@ class CalcioLiveSensor(Entity):
 
         # Info ultima partita terminata (ultimi 48 ore)
         from .sensori.scoreboard import is_within_last_48_hours
-        recent_finished_matches = [m for m in matches
+        recent_finished_matches = self._sort_by_date_desc([m for m in matches
             if m.get("state") == "post" and is_within_last_48_hours(m.get("date"))
-        ]
+        ])
         if recent_finished_matches:
             last_match = recent_finished_matches[0]
             computed.update({
@@ -980,9 +1092,11 @@ class CalcioLiveSensor(Entity):
                         self._state = f"🔴 {lm.get('home_team','?')} {lm.get('home_score','?')} - {lm.get('away_score','?')} {lm.get('away_team','?')} ({lm.get('clock','')})"
                     else:
                         # Priorità 2: Ultima partita terminata (più recente)
-                        finished_matches = [m for m in matches if m.get("state") == "post"]
+                        finished_matches = self._sort_by_date_desc(
+                            [m for m in matches if m.get("state") == "post"]
+                        )
                         if finished_matches:
-                            fm = finished_matches[0]  # Prima della lista = più recente
+                            fm = finished_matches[0]  # Ordinati per data: la più recente
                             self._state = f"✅ {fm.get('home_team','?')} {fm.get('home_score','?')} - {fm.get('away_score','?')} {fm.get('away_team','?')}"
                         else:
                             # Priorità 3: Prossima partita in programma
