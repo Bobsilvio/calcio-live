@@ -44,6 +44,36 @@ jobs:
             echo 'EOF_NOTES'
           } >> "$GITHUB_OUTPUT"
 
+      # Lo ZIP deve contenere i file dell'integrazione ALLA RADICE, non sotto
+      # custom_components/calcio_live/: HACS lo estrae con
+      # zip_file.extractall(<config>/custom_components/calcio_live) senza
+      # rimuovere alcun prefisso di percorso. La stessa struttura va bene anche
+      # per l'installazione manuale.
+      - name: Build integration zip
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          cd custom_components/calcio_live
+          zip -r "$GITHUB_WORKSPACE/calcio_live.zip" . \
+            -x '*.pyc' -x '__pycache__/*' -x '*/__pycache__/*' -x '*.DS_Store'
+          cd "$GITHUB_WORKSPACE"
+          echo "Contenuto dello zip:"
+          unzip -l calcio_live.zip
+
+      - name: Verify zip layout
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          # manifest.json deve stare alla radice dello zip, altrimenti HACS
+          # installerebbe l'integrazione in una sottocartella e HA non la vede.
+          if ! unzip -l calcio_live.zip | grep -qE ' manifest\.json$'; then
+            echo "::error::manifest.json non è alla radice dello zip"
+            exit 1
+          fi
+          ZIP_VERSION=$(unzip -p calcio_live.zip manifest.json | jq -r '.version')
+          if [ "$ZIP_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::versione nello zip ($ZIP_VERSION) diversa da quella attesa (${{ steps.version.outputs.version }})"
+            exit 1
+          fi
+
       - name: Create tag and release
         if: steps.check.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
@@ -51,5 +81,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           body: ${{ steps.notes.outputs.notes }}
+          files: calcio_live.zip
           draft: false
           prerelease: false
