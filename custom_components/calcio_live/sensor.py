@@ -11,47 +11,33 @@ from homeassistant.helpers.event import async_track_time_interval
 import random
 from .const import DOMAIN, _LOGGER
 
-# ESPN risponde HTTP 400 ("Failed to get events endpoint.") ai range di date
-# più lunghi di 365 giorni. La soglia è netta: 365 giorni -> 200, 366 -> 400.
-# Alcune leghe espongono un calendario stagionale più largo di così (es. Serie A
-# 2026-06-05 -> 2027-07-01, 391 giorni), quindi la richiesta falliva sempre.
-MAX_ESPN_RANGE_DAYS = 365
+# Dal 17/09/2026 ESPN risponde HTTP 400 ("Failed to get events endpoint.") a
+# QUALSIASI parametro dates in forma di range AAAAMMGG-AAAAMMGG, su tutte le
+# leghe e su entrambi gli host, anche per pochi giorni (20260915-20260920 -> 400).
+# Fino al 06/09 i range erano accettati fino a 365 giorni. Restano invece
+# accettati la data singola (AAAAMMGG), il mese (AAAAMM) e l'anno solare (AAAA):
+# chiediamo quindi un anno per volta e uniamo i risultati. Una stagione copre al
+# massimo due anni solari, quindi bastano due richieste; le partite fuori dalla
+# finestra stagionale vengono poi scartate dal filtro di process_match_data.
 
 
-def _clamp_espn_range(season_start, season_end, sensor_name=""):
-    """Riduce il range di date entro il limite accettato da ESPN.
+def _espn_years(season_start, season_end):
+    """Anni solari coperti dalla finestra [season_start, season_end].
 
-    ESPN rifiuta con 400 qualunque finestra più lunga di MAX_ESPN_RANGE_DAYS, e
-    diverse leghe hanno un calendario stagionale più largo: la Serie A dichiara
-    2026-06-05 -> 2027-07-01 (391 giorni), quindi ogni richiesta di
-    match_day/team_match/team_matches falliva, il sensore restava su "Nessuna
-    partita disponibile" e ogni update sprecava 3 tentativi con 5 secondi di
-    attesa ciascuno.
-
-    Teniamo l'inizio stagione e tagliamo la fine: una stagione dura ~10 mesi,
-    quindi start+365 la copre comunque per intero. Se però quella finestra si
-    chiude prima di oggi (siamo nella coda di padding del calendario) ancoriamo
-    il range alla fine, per non perdere il presente.
+    Accetta date nei formati AAAA-MM-GG o AAAAMMGG. In caso di date non
+    parsabili restituisce l'anno corrente, che copre comunque il presente.
     """
+    def _year(value):
+        digits = str(value).replace("-", "")[:4]
+        return int(digits)
+
     try:
-        start = datetime.strptime(season_start[:10], "%Y-%m-%d")
-        end = datetime.strptime(season_end[:10], "%Y-%m-%d")
+        first, last = _year(season_start), _year(season_end)
     except (ValueError, TypeError):
-        return season_start, season_end
-
-    if (end - start).days <= MAX_ESPN_RANGE_DAYS:
-        return season_start, season_end
-
-    clamped_end = start + timedelta(days=MAX_ESPN_RANGE_DAYS)
-    if clamped_end < datetime.now():
-        start = end - timedelta(days=MAX_ESPN_RANGE_DAYS)
-        clamped_end = end
-
-    _LOGGER.debug(
-        f"Range ESPN ridotto per {sensor_name}: {season_start[:10]}-{season_end[:10]} "
-        f"({(end - start).days} giorni) -> {start:%Y-%m-%d}-{clamped_end:%Y-%m-%d}"
-    )
-    return start.strftime("%Y-%m-%d"), clamped_end.strftime("%Y-%m-%d")
+        return [datetime.now().year]
+    if last < first:
+        first, last = last, first
+    return list(range(first, last + 1))
 
 
 # Competizioni con fase a eliminazione diretta (knockout bracket)
@@ -246,6 +232,8 @@ class CalcioLiveSensor(Entity):
         self._match_finished_dispatched = set()
         self._store = None
         self._unsub_interval = None
+        self._pending_years = []
+        self._bracket_window = None
 
         self.base_url = "https://site.web.api.espn.com/apis/v2/sports/soccer"
         self.base_url_2 = "https://site.api.espn.com/apis/site/v2/sports/soccer"
@@ -354,13 +342,16 @@ class CalcioLiveSensor(Entity):
         retries = 0
         while retries < 3:
             try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                # 20 s: la query annuale di una lega intera (es. Serie A 2026,
+                # ~3,5 MB) impiega ~4,5 s, troppo vicino ai 10 s di prima.
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
                     async with session.get(url, headers=_ESPN_HEADERS) as response:
                         if response.status == 200:
                             # Parse JSON in executor — large payloads (e.g. team_matches_mixed,
                             # bracket scoreboards) can block the event loop for seconds otherwise
                             raw = await response.read()
                             data = await self.hass.async_add_executor_job(json.loads, raw)
+                            data = await self._merge_extra_years(data)
                             data = await self._merge_mixed_sources(data)
                             _LOGGER.debug(f"Data received for {self._name}")
                             CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
@@ -400,37 +391,20 @@ class CalcioLiveSensor(Entity):
                 f"Aggiornamento fallito per {self._name} dopo 3 tentativi - URL: {url}"
             )
 
-            # Fallback: per match_day/team_match/team_matches l'URL usa l'intero
-            # intervallo stagionale (season_start-season_end, es. 13 mesi per una
-            # stagione intera) con limit=1000. Per alcune competizioni (es. Serie A
-            # "ita.1") ESPN risponde 200 ma con corpo vuoto/non valido per questo
-            # range così ampio, anche se lo stesso endpoint funziona perfettamente
-            # con un range più ristretto attorno alla data odierna.
-            #
-            # NOTA: una prima versione di questo fallback ometteva del tutto il
-            # parametro "dates" (tornando solo la giornata corrente di ESPN). Per i
-            # sensori "team_match"/"team_matches" questo nascondeva la prossima
-            # partita quando cadeva più avanti nella settimana (es. Napoli con un
-            # turno di riposo che gioca la giornata successiva 7-8 giorni dopo):
-            # la squadra non compariva tra le partite del giorno corrente e il
-            # sensore restava su "Nessuna partita disponibile" anche se la partita
-            # esisteva ed era già programmata. Usiamo quindi una finestra di date
-            # ristretta (-30/+60 giorni da oggi) che copre passato recente e
-            # prossimo turno senza incappare nel problema del range stagionale
-            # completo.
+            # Fallback: se anche la richiesta per anno fallisce 3 volte, riproviamo
+            # sull'anno corrente, che copre almeno il presente. Niente range di
+            # date: ESPN li rifiuta tutti (vedi _espn_years).
             if self._sensor_type in ("match_day", "team_match", "team_matches") and self._code:
-                _fallback_today = datetime.now()
-                _fallback_start = (_fallback_today - timedelta(days=30)).strftime("%Y%m%d")
-                _fallback_end = (_fallback_today + timedelta(days=60)).strftime("%Y%m%d")
+                self._pending_years = []
                 fallback_url = (
                     f"{self.base_url_3}/{self._code}/scoreboard"
-                    f"?limit=1000&dates={_fallback_start}-{_fallback_end}"
+                    f"?limit=1000&dates={datetime.now().year}"
                 )
                 _LOGGER.warning(
-                    f"Fallback con range ridotto (-30/+60 giorni) per {self._name} - URL: {fallback_url}"
+                    f"Fallback sull'anno corrente per {self._name} - URL: {fallback_url}"
                 )
                 try:
-                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
                         async with session.get(fallback_url, headers=_ESPN_HEADERS) as response:
                             if response.status == 200:
                                 raw = await response.read()
@@ -438,7 +412,7 @@ class CalcioLiveSensor(Entity):
                                 CalcioLiveSensor._cache[cache_key] = {"data": data, "time": datetime.now()}
                                 await self.hass.async_add_executor_job(self._process_data, data)
                                 await self._enrich_with_summary()
-                                _LOGGER.info(f"Finished update for {self._name} (fallback range ridotto)")
+                                _LOGGER.info(f"Finished update for {self._name} (fallback anno corrente)")
                             else:
                                 _LOGGER.error(
                                     f"Fallback fallito per {self._name}: status {response.status} - URL: {fallback_url}"
@@ -479,6 +453,9 @@ class CalcioLiveSensor(Entity):
 
 
     async def _build_url(self):
+        # Stato per-richiesta letto da _merge_extra_years dopo il fetch.
+        self._pending_years = []
+        self._bracket_window = None
         base_url    = "https://site.web.api.espn.com/apis/v2/sports/soccer"
         base_url_2  = "https://site.api.espn.com/apis/site/v2/sports/soccer"
         base_url_3  = "https://site.web.api.espn.com/apis/site/v2/sports/soccer"
@@ -500,7 +477,11 @@ class CalcioLiveSensor(Entity):
                 ko_year = now.year + 1
             else:
                 ko_year = now.year
-            return f"{self.base_url_3}/{self._code}/scoreboard?limit=300&dates={ko_year}0201-{ko_year}0731"
+            # Niente range (vedi _espn_years): chiediamo l'anno intero e teniamo
+            # solo Feb-Lug, come prima. Il filtro serve: i preliminari estivi
+            # hanno le stesse note "1st Leg"/"2nd Leg" dei turni KO.
+            self._bracket_window = (f"{ko_year}-02-01", f"{ko_year}-07-31T23:59Z")
+            return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={ko_year}"
 
         if self._sensor_type == "team_matches_mixed" and self._team_id:
             # Il mixed segue la squadra in TUTTE le competizioni, quindi il
@@ -535,7 +516,7 @@ class CalcioLiveSensor(Entity):
             season_start = self._start_date.strftime("%Y-%m-%d")
             season_end = self._end_date.strftime("%Y-%m-%d")
 
-        season_start, season_end = _clamp_espn_range(season_start, season_end, self._name)
+        years = _espn_years(season_start, season_end)
 
         season_start = season_start[:10].replace("-", "")
         season_end = season_end[:10].replace("-", "")
@@ -544,7 +525,8 @@ class CalcioLiveSensor(Entity):
             return f"{self.base_url}/{self._code}/standings?"
 
         elif self._sensor_type in ("match_day", "team_match", "team_matches"):
-            return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={season_start}-{season_end}"
+            self._pending_years = years[1:]
+            return f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={years[0]}"
 
         elif self._sensor_type == "team_matches_mixed":
             # Il caso con team_id è già stato gestito sopra: qui ci si arriva
@@ -630,10 +612,44 @@ class CalcioLiveSensor(Entity):
         data["events"] = merged
         return data
 
-    async def _fetch_json(self, url):
+    async def _merge_extra_years(self, data):
+        """Completa la risposta con gli anni solari successivi al primo.
+
+        _build_url chiede solo il primo anno della stagione e lascia gli altri
+        in self._pending_years: qui li scarichiamo e uniamo gli eventi per id.
+        Per il bracket applica invece la finestra Feb-Lug della fase KO.
+        """
+        pending = getattr(self, "_pending_years", []) or []
+        window = getattr(self, "_bracket_window", None)
+        if not pending and not window:
+            return data
+
+        events = {}
+        for event in data.get("events") or []:
+            events.setdefault(event.get("id"), event)
+
+        for year in pending:
+            extra = await self._fetch_json(
+                f"{self.base_url_3}/{self._code}/scoreboard?limit=1000&dates={year}",
+                timeout=20,
+            )
+            if not extra:
+                _LOGGER.warning(f"Anno {year} non disponibile per {self._name}: calendario parziale")
+                continue
+            for event in extra.get("events") or []:
+                events.setdefault(event.get("id"), event)
+
+        merged = [e for e in events.values() if e is not None]
+        if window:
+            merged = [e for e in merged if window[0] <= (e.get("date") or "") <= window[1]]
+        merged.sort(key=lambda event: event.get("date") or "")
+        data["events"] = merged
+        return data
+
+    async def _fetch_json(self, url, timeout=10):
         """GET + parse JSON in executor. Restituisce None in caso di errore."""
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
                 async with session.get(url, headers={"Accept-Language": "en"}) as response:
                     if response.status != 200:
                         return None
